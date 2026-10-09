@@ -1,0 +1,953 @@
+"""
+RFAI Backend — v4 (Python 3.13 / PyArrow-safe)
+================================================
+Root cause of previous crash: pandas 3.x on Python 3.13 uses PyArrow-backed
+string arrays by default. PyArrow's .take() fails with malloc errors when the
+filtered result is large because it tries to allocate contiguous memory.
+
+Fixes in v4:
+  • Force numpy-backed dtypes on every parquet read (dtype_backend='numpy_nullable')
+  • Dedup with groupby+idxmax — no boolean filter on large frame, no .take() call
+  • CSV reads via pandas.read_csv (no csv.Sniffer / import collision)
+  • int16 for delay, int8 for _sp, Categorical for string cols
+  • gc.collect() after every heavy step
+  • Full traceback logged on errors
+"""
+import os, sys, re, json, time, logging, threading, io, gc
+from pathlib import Path
+from datetime import datetime, date
+
+try:
+    import pandas as pd
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import openpyxl
+except ImportError:
+    print("\n  Run: pip install pandas pyarrow openpyxl fastapi uvicorn python-multipart\n")
+    sys.exit(1)
+
+try:
+    import uvicorn
+    from fastapi import FastAPI, UploadFile, File, Query, BackgroundTasks
+    from fastapi.responses import JSONResponse, FileResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    from typing import List
+except ImportError:
+    print("\n  Run: pip install fastapi uvicorn python-multipart\n")
+    sys.exit(1)
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger("rfai")
+
+SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+HTML_FILE  = next(SCRIPT_DIR.glob("RFAI_Analysis_Airtel*.html"),
+                  SCRIPT_DIR / "RFAI_Analysis_Airtel_v10.html")
+PORT  = 8765
+CHUNK = 50_000
+TODAY = date.today()
+
+# ── Column aliases ─────────────────────────────────────────────────────────
+COLS = {
+    'CIRCLE':        ['CIRCLE','Circle','circle','STATE'],
+    'SR_NO':         ['SR_NO','SR No','SR No.','SRNO','SR_NUMBER'],
+    'SITE_ID':       ['2G_SITE_ID','SITE_ID','Site ID','SiteId'],
+    'TOCO':          ['TOCO_NAME','TOCO','Toco'],
+    'PARTNER':       ['Integration Partner','INTEGRATION_PARTNER','Infra Partner'],
+    'BROAD_PROJECT': ['BROAD_PROJECT','Broad Project','Project','PROJECT'],
+    'DOMAIN':        ['Domain','DOMAIN','domain','Sub Project','SUB_PROJECT'],
+    'OEM':           ['OEM_NAME','OEM','OEM Name'],
+    'TSP':           ['TSP_PROJECT','TSP','TSP Project'],
+    'RFAI_NOTICE':   ['RFAI_NOTICE_FORM_DATE','RFAI Notice','RFAI Date','rfai_date'],
+    'RFAI_REJ':      ['RFAI_LAST_REJECTION_DATE','RFAI Rejection','Rejection Date'],
+    'RFAI_REGEN':    ['RFAI_REGENERATION_DATE','RFAI Regen'],
+    'RFAI_OFFERED':  ['RFAI_LAST_OFFERED_DATE','RFAI Offered'],
+    'FINAL_RFAI':    ['Final RFAI','FINAL_RFAI','Final RFAI Date'],
+    'OA_DATE':       ['OA_(COMMERCIAL_TRAFFIC_PUT_ON_AIR)_(MS1)_DATE','OA_DATE',
+                      'OnAir Date','On Air Date','Go Live Date'],
+    'PRI_HIST':      ['PriHistory','PRI_HISTORY','PRI History','PRI'],
+    'MO_DATE':       ['MO_PUNCHING_DATE','MO Date'],
+    'MD_DATE':       ['MATERIAL_DISPATCH_(MD)_DATE','MD Date'],
+    'MOS_DATE':      ['MATERIAL_DELIVERY_(MOS)_DATE','MOS Date'],
+    'INST_START':    ['INSTALLATION_START_DATE','Install Start'],
+    'INST_END':      ['INSTALLATION_END_DATE','Install End'],
+    'PMI_OPEN':      ['POST_MEDIA_ISSUE_OPEN_DATE','PMI Open'],
+    'PMI_CLOSE':     ['POST_MEDIA_ISSUE_CLOSE_DATE','PMI Close'],
+}
+
+MON     = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+MON_IDX = {m.lower(): i for i, m in enumerate(MON)}
+_dc: dict = {}
+
+# ── Date parser ────────────────────────────────────────────────────────────
+def pd_(v):
+    if v is None: return None
+    if isinstance(v, date): return v
+    if isinstance(v, datetime): return v.date()
+    s = str(v).strip()
+    if not s or s in ('-','—','nan','None','NaT','0',''): return None
+    cached = _dc.get(s)
+    if cached is not None: return cached if cached != '' else None
+    result = None
+    try:
+        m = re.match(
+            r'(\d{1,2})[\-\/](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\-\/](\d{2,4})$',
+            s, re.IGNORECASE)
+        if m:
+            day = int(m.group(1)); mo = MON_IDX.get(m.group(2).lower())
+            yr  = int(m.group(3))
+            if yr < 100: yr += 2000
+            if mo is not None and 1 <= day <= 31:
+                result = date(yr, mo+1, day)
+        elif len(s) >= 10 and s[4] == '-':
+            result = date(int(s[:4]), int(s[5:7]), int(s[8:10]))
+        elif re.search(r'[/\-]', s):
+            sep = '/' if '/' in s else '-'
+            p = s.split(sep)
+            if len(p) == 3:
+                a, b, y = int(p[0]), int(p[1]), int(p[2])
+                if y < 100: y += 2000
+                if y > 1900:
+                    if 1 <= b <= 12 and 1 <= a <= 31: result = date(y, b, a)
+                elif 1 <= a <= 12 and 1 <= b <= 31:   result = date(y, a, b)
+        elif s.replace('.','').lstrip('-').isdigit():
+            n = float(s)
+            if 1000 < n < 70000:
+                from datetime import timedelta
+                result = date(1899, 12, 30) + timedelta(days=int(n))
+    except Exception: pass
+    if result and not (2000 <= result.year <= 2035): result = None
+    _dc[s] = result if result else ''
+    return result
+
+def fd(d):  return f"{d.day:02d}-{MON[d.month-1]}-{d.year}" if d else ''
+def mk(d):
+    if not d: return None
+    m, y = d.month-1, d.year
+    if d.day > 25:
+        m += 1
+        if m > 11: m = 0; y += 1
+    return f"{MON[m]}'{str(y)[2:]}"
+def jmk(d): return f"{MON[d.month-1]}'{str(d.year)[2:]}" if d else None
+
+# ── Category ───────────────────────────────────────────────────────────────
+CAT = {
+    'SWAP':'SWAP','COLD SWAP':'SWAP',
+    '5G':'5G Upgrade','5G UPGRADE':'5G Upgrade','5G_UPGRADE':'5G Upgrade',
+    '5G SEC ADDITION':'5G Upgrade','5G_SEC_ADDITION':'5G Upgrade',
+    'FDD_UPGRADE':'4G Upgrade','FDD UPGRADE':'4G Upgrade',
+    'TDD_UPGRADE':'4G Upgrade','TDD UPGRADE':'4G Upgrade',
+    '4G UPGRADE':'4G Upgrade','4G':'4G Upgrade',
+    '2G_UPGRADE':'4G Upgrade','NEW_SECTOR_ADDITION':'4G Upgrade','TWIN_BEAM':'4G Upgrade',
+    'TPIP':'Fibre','OLT/FTTH':'Fibre','FIBER':'Fibre','FIBRE':'Fibre',
+    'OLT':'Fibre','FTTH':'Fibre',
+    'NT':'NT','NEW_TOWER':'NT','NEW TOWER':'NT','NEW SITE':'NT',
+    'ULS':'ULS','NEW_TOWER_ULS':'ULS',
+    'MW':'MW','MICROWAVE':'MW','E-BAND':'MW',
+    'RELOCATION':'Relocation','RELOCENT':'Relocation',
+}
+def get_cat(proj):
+    if not proj: return None
+    u = str(proj).strip().upper()
+    v = CAT.get(u) or CAT.get(u.replace('_',' '))
+    if v: return v
+    if u.startswith('5G'):                               return '5G Upgrade'
+    if u.startswith('4G') or 'FDD' in u or 'TDD' in u: return '4G Upgrade'
+    if 'FIBER' in u or 'FIBRE' in u:                    return 'Fibre'
+    if 'RELOC' in u:                                     return 'Relocation'
+    if 'NEW TOWER' in u or 'NEW_TOWER' in u:            return 'NT'
+    if u.startswith('MW') or 'MICROWAVE' in u:          return 'MW'
+    if 'SWAP' in u:                                      return 'SWAP'
+    return None
+
+# ── PRI parser ─────────────────────────────────────────────────────────────
+def parse_pri(v):
+    if not v or str(v).strip() in ('','nan','None','-','—'):
+        return None, None, 0, False
+    s = str(v).strip(); ranges = []
+    for part in re.split(r'[|;\n]', s):
+        t = part.strip()
+        if not t: continue
+        m = re.search(r'[-–—]>', t)
+        if m: a, b = pd_(t[:m.start()].strip()), pd_(t[m.end():].strip())
+        else: a, b = pd_(t), None
+        if a: ranges.append((a, b))
+    if not ranges: return None, None, 0, False
+    ranges.sort(key=lambda x: x[0])
+    first = ranges[0][0]; is_open = any(b is None for _, b in ranges)
+    tot = 0; last = None
+    for a, b in ranges:
+        if b:
+            d = (b-a).days
+            if d > 0: tot += d
+            if not last or b > last: last = b
+    return first, last, tot, is_open
+
+# ── Header resolver ────────────────────────────────────────────────────────
+def _norm(s): return re.sub(r'[\s_\-\(\)/\.]+','',str(s)).lower()
+def map_headers(headers):
+    hmap = {_norm(h): i for i, h in enumerate(headers)}
+    result = {}
+    for col, aliases in COLS.items():
+        idx = None
+        for a in aliases:
+            if a in headers: idx = headers.index(a); break
+        if idx is None:
+            for a in aliases:
+                n = _norm(a)
+                if n in hmap: idx = hmap[n]; break
+        if idx is None:
+            for a in aliases:
+                an = _norm(a)
+                for hn, hi in hmap.items():
+                    if len(an) > 3 and (hn == an or hn in an or an in hn):
+                        idx = hi; break
+                if idx is not None: break
+        result[col] = idx
+    return result
+
+def _g(row, cm, col):
+    idx = cm.get(col)
+    if idx is None or idx >= len(row): return None
+    v = row[idx]
+    return None if v in (None,'','nan','None','NaT') else str(v).strip() or None
+
+# ── Row processor ──────────────────────────────────────────────────────────
+def process_row(row, cm):
+    rfai = pd_(_g(row, cm, 'RFAI_NOTICE'))
+    if not rfai: return None
+    if not (2020 <= rfai.year <= 2030): return None
+    rej = pd_(_g(row,cm,'RFAI_REJ')); regen = pd_(_g(row,cm,'RFAI_REGEN'))
+    final_c = pd_(_g(row,cm,'FINAL_RFAI')); oa_raw = pd_(_g(row,cm,'OA_DATE'))
+    mo_d=pd_(_g(row,cm,'MO_DATE')); md_d=pd_(_g(row,cm,'MD_DATE'))
+    mos_d=pd_(_g(row,cm,'MOS_DATE')); is_d=pd_(_g(row,cm,'INST_START'))
+    ie_d=pd_(_g(row,cm,'INST_END')); po_d=pd_(_g(row,cm,'PMI_OPEN'))
+    pc_d=pd_(_g(row,cm,'PMI_CLOSE'))
+    pf, pl, pd_days, p_open = parse_pri(_g(row,cm,'PRI_HIST'))
+    oa    = oa_raw if oa_raw and 2000<=oa_raw.year<=2035 and oa_raw>=rfai else None
+    final = final_c or (rej and (regen or oa)) or rfai
+    reoffer = regen if rej else None
+    bd = None; bl = ''
+    for d_,l in [(mo_d,'MO'),(md_d,'MD'),(mos_d,'MOS'),(is_d,'Inst Start'),
+                 (ie_d,'Inst End'),(po_d,'PMI Open'),(pc_d,'PMI Close'),(rfai,'RFAI')]:
+        if d_ and (bd is None or d_ < bd): bd = d_; bl = l
+    if not bd: bd = rfai; bl = 'RFAI'
+    if final and (not bd or final > bd): bd = final; bl = 'Final RFAI'
+    if oa:              st = 'OnAir'
+    elif p_open:        st = 'Open PRI'
+    elif rej and not regen: st = 'Rejected RFAI'
+    elif final or pf:   st = 'OnAir Pending'
+    else:               st = 'RFAI Pending'
+    anchor = final or rfai or bd; delay = None
+    if anchor and oa:
+        d_ = (oa-anchor).days
+        if pd_days > 0: d_ = max(0, d_-pd_days)
+        delay = max(0, d_)
+    elif anchor and st in ('OnAir Pending','Open PRI','RFAI Pending'):
+        d_ = (TODAY-anchor).days
+        if pd_days > 0: d_ = max(0, d_-pd_days)
+        delay = max(0, d_)
+    grp = ('N/A' if delay is None else
+           '0-30' if delay<=30 else '30-60' if delay<=60 else
+           '60-90' if delay<=90 else '>90')
+    exit_mk = (jmk(oa) if st=='OnAir' and oa
+               else mk(rfai if st!='Rejected RFAI' else (final or rfai)))
+    bp = _g(row,cm,'BROAD_PROJECT') or ''; dm = _g(row,cm,'DOMAIN') or ''
+    return {
+        'srNo':_g(row,cm,'SR_NO') or '','siteId':_g(row,cm,'SITE_ID') or '',
+        'circle':_g(row,cm,'CIRCLE') or '','toco':_g(row,cm,'TOCO') or '',
+        'partner':_g(row,cm,'PARTNER') or '','bPrj':bp,'domain':dm,
+        'oem':_g(row,cm,'OEM') or '','tsp':_g(row,cm,'TSP') or '',
+        'category':get_cat(bp) or get_cat(dm) or '',
+        'srStatus':st,'delay':delay if delay is not None else -1,'group':grp,
+        'exitMK':exit_mk or '','journeyMK':jmk(rfai) or '',
+        'rfaiNotice':fd(rfai),'rfaiRej':fd(rej),'rfaiRegen':fd(regen),
+        'rfaiReoffer':fd(reoffer),'finalRfai':fd(final),
+        'priFirst':fd(pf),'priLast':fd(pl),'priDays':pd_days,
+        'onAir':fd(oa),'baseDate':fd(bd),'baseLabel':bl,
+    }
+
+OUT = ['srNo','siteId','circle','toco','partner','bPrj','domain','oem','tsp','category',
+       'srStatus','delay','group','exitMK','journeyMK',
+       'rfaiNotice','rfaiRej','rfaiRegen','rfaiReoffer','finalRfai',
+       'priFirst','priLast','priDays','onAir','baseDate','baseLabel']
+
+def to_pq(rows, path):
+    if not rows: return
+    arrays = {}
+    for col in OUT:
+        vals = [r.get(col,'') for r in rows]
+        if col in ('delay','priDays'):
+            arrays[col] = pa.array([v if isinstance(v,int) else -1 for v in vals], type=pa.int16())
+        else:
+            arrays[col] = pa.array([str(v) if v else '' for v in vals], type=pa.string())
+    pq.write_table(pa.table(arrays), str(path), compression='snappy', use_dictionary=True)
+
+# ── Parquet reader — ALWAYS numpy-backed, never PyArrow-backed ─────────────
+def _read_pq(path, columns=None):
+    """Read parquet and FORCE numpy dtypes — avoids PyArrow-backed string
+    arrays that cause malloc failures on pandas 3.x / Python 3.13."""
+    tbl = pq.read_table(str(path), columns=columns)
+    # Convert to pandas with explicit numpy dtype backend
+    df = tbl.to_pandas(types_mapper=lambda t: (
+        pd.StringDtype()  # numpy object-backed strings
+        if pa.types.is_string(t) or pa.types.is_large_string(t) else None
+    ))
+    # Belt-and-braces: force any remaining ArrowDtype → numpy object
+    for col in df.columns:
+        if hasattr(df[col].dtype, 'pyarrow_dtype'):
+            df[col] = df[col].astype(object).fillna('')
+        # Ensure string columns are plain Python str (object dtype)
+        if df[col].dtype.name in ('string','large_string') or str(df[col].dtype).startswith('string'):
+            df[col] = df[col].astype(str).replace('<NA>','').replace('nan','')
+    return df
+
+# ── Job state ──────────────────────────────────────────────────────────────
+class Job:
+    def __init__(self): self.reset()
+    def reset(self):
+        self.running=False; self.done=False; self.error=''
+        self.progress=0; self.message=''; self.current_file=''
+        self.rows_processed=0; self.rows_kept=0; self.total_files=0
+        self.cache_dir=None; self.file_stats=[]; self.rows_no_sr=0
+
+_job       = Job()
+_cache_dir = SCRIPT_DIR / '_rfai_cache'
+_dash_cache    = None
+_df_cache      = None
+_df_full_cache = None
+
+_df_cache_cols = ['circle','category','bPrj','toco','domain','oem',
+                  'exitMK','journeyMK','srStatus','delay','srNo']
+_CAT_COLS      = ['circle','category','bPrj','toco','domain','oem',
+                  'srStatus','group','exitMK','journeyMK']
+
+def _optimise_df(df):
+    """Categorical strings + int16 numerics."""
+    for col in _CAT_COLS:
+        if col in df.columns:
+            try: df[col] = df[col].astype('category')
+            except Exception: pass
+    for col in ('delay','priDays'):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1).astype('int16')
+    return df
+
+# ── Memory-safe dedup — groupby+idxmax, NO boolean filter, NO sort_values ──
+_SP = {'OnAir':5,'OnAir Pending':4,'Open PRI':3,'RFAI Pending':2,'Rejected RFAI':1}
+
+def _dedup_df(df):
+    """Keep highest-priority status per srNo.
+    Uses integer index selection only — no .take(), no boolean filter copy."""
+    if df.empty: return df
+    # Work on plain numpy object arrays to avoid PyArrow path entirely
+    sr_arr  = df['srNo'].to_numpy(dtype=object, na_value='')
+    st_arr  = df['srStatus'].to_numpy(dtype=object, na_value='')
+
+    # Vectorised priority lookup
+    sp_arr  = np.array([_SP.get(str(s), 0) for s in st_arr], dtype=np.int8)
+
+    named_mask = sr_arr != ''
+    named_idx  = np.where(named_mask)[0]
+    blank_idx  = np.where(~named_mask)[0]
+
+    if len(named_idx):
+        # groupby via dictionary — pure Python, zero PyArrow allocation
+        best: dict = {}          # srNo -> (priority, positional_index)
+        for pos in named_idx:
+            sr  = sr_arr[pos]
+            pri = int(sp_arr[pos])
+            if sr not in best or pri > best[sr][0]:
+                best[sr] = (pri, int(pos))
+        keep_named = np.array([v[1] for v in best.values()], dtype=np.intp)
+        keep_named.sort()
+    else:
+        keep_named = np.array([], dtype=np.intp)
+
+    keep_all = np.concatenate([keep_named, blank_idx]) if len(blank_idx) else keep_named
+    return df.iloc[keep_all].reset_index(drop=True)
+
+# ── CSV reader — pandas.read_csv, no Sniffer ──────────────────────────────
+def _process_csv(content: bytes, fname: str, grand: int, kept: int, chunk_idx: int):
+    for enc in ('utf-8','utf-8-sig','latin-1','cp1252'):
+        try: text = content.decode(enc); break
+        except Exception: text = None
+    if text is None: text = content.decode('utf-8', errors='replace')
+
+    # Detect delimiter from first line
+    first_line = text[:2000]
+    delim = ','
+    for d in (',','\t','|',';'):
+        if d in first_line: delim = d; break
+
+    buf = io.StringIO(text)
+    try:
+        reader = pd.read_csv(
+            buf, sep=delim, dtype=str, keep_default_na=False,
+            chunksize=CHUNK, low_memory=False, on_bad_lines='skip')
+    except Exception as e:
+        log.error(f"  CSV open failed {fname}: {e}")
+        return grand, kept, chunk_idx
+
+    headers = None; cm = None; batch = []
+    for chunk_df in reader:
+        if headers is None:
+            headers = list(chunk_df.columns)
+            cm = map_headers(headers)
+            log.info(f"  Matched {sum(1 for v in cm.values() if v is not None)}/{len(COLS)} cols")
+        for row in chunk_df.itertuples(index=False, name=None):
+            grand += 1
+            r = process_row(row, cm)
+            if r: batch.append(r); kept += 1
+        if len(batch) >= CHUNK:
+            to_pq(batch, _cache_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+            batch = []; chunk_idx += 1
+            _job.rows_processed = grand; _job.rows_kept = kept
+    if batch:
+        to_pq(batch, _cache_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+        chunk_idx += 1
+    return grand, kept, chunk_idx
+
+# ── Background file processor ──────────────────────────────────────────────
+def process_files_bg(file_infos):
+    global _job, _cache_dir, _df_cache, _df_full_cache, _dash_cache
+    _df_cache=None; _df_full_cache=None; _dash_cache=None
+    gc.collect()
+    _job.reset(); _job.running=True
+    _cache_dir.mkdir(exist_ok=True)
+    for f in _cache_dir.glob("*.parquet"): f.unlink()
+    _job.cache_dir=_cache_dir; _job.total_files=len(file_infos)
+    grand=0; kept=0
+
+    for fi,(fname,content) in enumerate(file_infos):
+        _job.current_file=fname
+        _job.progress=int(fi/len(file_infos)*90)
+        _job.message=f'[{fi+1}/{len(file_infos)}] {fname}'
+        log.info(f"  {fname}")
+        ext=Path(fname).suffix.lower(); chunk_idx=0
+        try:
+            if ext=='.csv':
+                grand, kept, chunk_idx = _process_csv(content, fname, grand, kept, chunk_idx)
+            else:
+                wb=openpyxl.load_workbook(io.BytesIO(content),read_only=True,data_only=True)
+                best=wb.sheetnames[0]; best_sc=0
+                for sn in wb.sheetnames:
+                    ws=wb[sn]; r1=next(ws.iter_rows(max_row=1,values_only=True),None)
+                    if r1:
+                        sc=sum(1 for c_ in r1 if c_ and any(
+                            k in str(c_).upper()
+                            for k in ('RFAI','CIRCLE','SR_NO','SITE','BROAD','OA')))
+                        if sc>best_sc: best_sc=sc; best=sn
+                ws=wb[best]; it=ws.iter_rows(values_only=True)
+                headers=[str(c_).strip() if c_ else '' for c_ in next(it)]
+                cm=map_headers(headers)
+                log.info(f"  Matched {sum(1 for v in cm.values() if v is not None)}/{len(COLS)} cols")
+                batch=[]
+                for row in it:
+                    grand+=1; r=process_row(tuple(row),cm)
+                    if r: batch.append(r); kept+=1
+                    if len(batch)>=CHUNK:
+                        to_pq(batch,_cache_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+                        batch=[]; chunk_idx+=1
+                        _job.rows_processed=grand; _job.rows_kept=kept
+                if batch:
+                    to_pq(batch,_cache_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+                wb.close()
+        except Exception as e:
+            log.error(f"  ERROR {fname}: {e}")
+            import traceback; traceback.print_exc()
+
+        ps=sum(s['scanned'] for s in _job.file_stats)
+        pk=sum(s['kept']    for s in _job.file_stats)
+        _job.file_stats.append({'name':fname,'scanned':grand-ps,'kept':kept-pk})
+        _job.rows_processed=grand; _job.rows_kept=kept
+
+    _job.rows_no_sr=0
+    for pf in sorted(_cache_dir.glob("*.parquet")):
+        try:
+            t=pq.read_table(str(pf),columns=['srNo'])
+            _job.rows_no_sr+=int(t.column('srNo').to_pylist().count(''))
+        except Exception: pass
+
+    _job.progress=100; _job.done=True; _job.running=False
+    _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
+    log.info(_job.message)
+    log.info(f"  Total scanned: {grand:,} | With RFAI date: {kept:,} | "
+             f"Dropped (no RFAI): {grand-kept:,} | Blank SR#: {_job.rows_no_sr:,}")
+    _build_caches()
+
+# ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
+def _build_caches():
+    global _df_cache, _dash_cache, _df_full_cache
+    try:
+        fs = sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
+        if not fs: return
+        log.info(f"  Building in-memory cache from {len(fs)} parquet file(s)…")
+
+        # STEP 1: slim columns, one file at a time, numpy-backed
+        slim_parts = []
+        for f in fs:
+            try:
+                slim_parts.append(_read_pq(f, columns=_df_cache_cols))
+            except Exception as e:
+                log.warning(f"  Skipping slim {f.name}: {e}")
+        if not slim_parts:
+            log.error("  No parquet files readable"); return
+
+        df = pd.concat(slim_parts, ignore_index=True)
+        del slim_parts; gc.collect()
+
+        # STEP 2: dedup — pure numpy path, no PyArrow .take()
+        df = _dedup_df(df)
+        gc.collect()
+
+        df = _optimise_df(df)
+        _df_cache   = df
+        _dash_cache = _compute_dash_aggs(df)
+        gc.collect()
+
+        # STEP 3: full-column cache for journey table
+        kept_sr_set = set(df['srNo'].astype(str).unique())
+        kept_sr_set.discard('')
+
+        full_parts = []
+        for f in fs:
+            try:
+                part = _read_pq(f)
+                # Filter using numpy index — no PyArrow boolean filter
+                sr_col = part['srNo'].to_numpy(dtype=object, na_value='')
+                mask   = np.isin(sr_col, list(kept_sr_set)) | (sr_col == '')
+                keep   = np.where(mask)[0]
+                full_parts.append(part.iloc[keep].copy())
+                del part, sr_col, mask, keep; gc.collect()
+            except Exception as e:
+                log.warning(f"  Full-cache skip {f.name}: {e}")
+
+        if full_parts:
+            df_full = pd.concat(full_parts, ignore_index=True)
+            del full_parts; gc.collect()
+            df_full = _dedup_df(df_full); gc.collect()
+            _df_full_cache = _optimise_df(df_full)
+            del df_full; gc.collect()
+        else:
+            _df_full_cache = None
+
+        n_full = len(_df_full_cache) if _df_full_cache is not None else 0
+        c_full = len(_df_full_cache.columns) if _df_full_cache is not None else 0
+        log.info(f"  Cache ready — {len(_df_cache):,} unique SRs (dash) | "
+                 f"{n_full:,} (filter) | {len(_df_cache.columns)}/{c_full} cols")
+
+    except Exception as e:
+        log.error(f"  Cache build error: {e}")
+        import traceback; traceback.print_exc()
+        _df_cache=None; _dash_cache=None; _df_full_cache=None
+
+# ── Dashboard aggregation ──────────────────────────────────────────────────
+def _compute_dash_aggs(df):
+    try: return _compute_dash_aggs_inner(df)
+    except Exception as e:
+        log.error(f"  _compute_dash_aggs error: {e}")
+        return {"total":len(df),"statuses":{},"byMonth":[],"byCircle":[],
+                "byOem":[],"byCat":[],"agingBuckets":{},
+                "avgDelay":None,"avgDelayPending":None}
+
+def _compute_dash_aggs_inner(df):
+    MON_O=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+    def mk_sort(m):
+        if not m or "'" not in m: return 0
+        p=m.split("'")
+        try: return int('20'+p[1])*12+MON_O.index(p[0][:3].lower())
+        except: return 0
+
+    total=len(df)
+    if not total:
+        return {"total":0,"statuses":{},"byMonth":[],"byCircle":[],
+                "byOem":[],"byCat":[],"agingBuckets":{},
+                "avgDelay":None,"avgDelayPending":None}
+
+    delay_num   = pd.to_numeric(df['delay'], errors='coerce')
+    delay_clean = delay_num.where(delay_num != -1)
+    statuses    = df['srStatus'].value_counts().to_dict()
+
+    byMonth=[]
+    for mk_v,grp in df.groupby('exitMK', observed=True):
+        if not mk_v: continue
+        sc=grp['srStatus'].value_counts().to_dict()
+        d_grp=delay_clean.loc[grp.index]
+        byMonth.append({"mk":mk_v,"total":len(grp),"statuses":sc,
+                         "avgDelay":round(d_grp.mean()) if d_grp.notna().any() else None})
+    byMonth.sort(key=lambda x:mk_sort(x['mk']))
+
+    byCircle=[]
+    for cir,grp in df.groupby('circle', observed=True):
+        if not cir: continue
+        sc=grp['srStatus'].value_counts().to_dict()
+        byCircle.append({"circle":cir,"total":len(grp),"statuses":sc,
+                          "oaRate":round(sc.get('OnAir',0)/len(grp)*100)})
+    byCircle.sort(key=lambda x:-x['total'])
+    byCircle=byCircle[:20]
+
+    byOem=[]
+    for oem_,grp in df.groupby('oem', observed=True):
+        if not oem_: continue
+        byOem.append({"oem":oem_,"total":len(grp),
+                       "statuses":grp['srStatus'].value_counts().to_dict()})
+    byOem.sort(key=lambda x:-x['total'])
+    byOem=byOem[:15]
+
+    byCat=[]
+    for cat_,grp in df.groupby('category', observed=True):
+        if not cat_: continue
+        byCat.append({"category":cat_,"total":len(grp),
+                       "statuses":grp['srStatus'].value_counts().to_dict()})
+    byCat.sort(key=lambda x:-x['total'])
+
+    oa_d=delay_clean[df['srStatus']=='OnAir']
+    aging={"0-30":int((oa_d<=30).sum()),"30-60":int(((oa_d>30)&(oa_d<=60)).sum()),
+           "60-90":int(((oa_d>60)&(oa_d<=90)).sum()),">90":int((oa_d>90).sum())}
+    pend_d=delay_clean[df['srStatus'].isin(['OnAir Pending','RFAI Pending','Open PRI'])]
+    return {"total":total,"statuses":statuses,"byMonth":byMonth,
+            "byCircle":byCircle,"byOem":byOem,"byCat":byCat,"agingBuckets":aging,
+            "avgDelay":    round(delay_clean.mean()) if delay_clean.notna().any() else None,
+            "avgDelayPending":round(pend_d.mean()) if pend_d.notna().any() else None}
+
+# ── HTML row builder ───────────────────────────────────────────────────────
+SCS={'OnAir':'bo','OnAir Pending':'bp','Rejected RFAI':'br-rej',
+     'Open PRI':'bb','RFAI Pending':'bg2'}
+GCS={'0-30':'g0 gb','30-60':'g2 gb','60-90':'g4 gb','>90':'g5 gb','N/A':'gn'}
+GLS={'0-30':'0–30','30-60':'30–60','60-90':'60–90','>90':'>90','N/A':'N/A'}
+
+def mk_sort_val(m):
+    if not m or "'" not in m: return 0
+    p=m.split("'")
+    try: return int('20'+p[1])*12+['jan','feb','mar','apr','may','jun',
+         'jul','aug','sep','oct','nov','dec'].index(p[0][:3].lower())
+    except: return 0
+
+def row_html(r, months=None):
+    pf=r.get('priFirst',''); pd2=r.get('priDays',0)
+    base=(f'<tr>'
+          f'<td class="mn">{r.get("srNo","")}</td><td class="mn">{r.get("siteId","")}</td>'
+          f'<td>{r.get("circle","")}</td><td>{r.get("toco","")}</td>'
+          f'<td>{r.get("domain","")}</td><td>{r.get("oem","")}</td>'
+          f'<td>{r.get("tsp","")}</td><td>{r.get("partner","")}</td>'
+          f'<td>{r.get("bPrj","")}</td><td>{r.get("category","")}</td>'
+          f'<td class="mn">{r.get("rfaiNotice","")}</td>'
+          f'<td class="mn">{r.get("rfaiRej","")}</td>'
+          f'<td class="mn">{r.get("rfaiReoffer","")}</td>'
+          f'<td class="mn">{r.get("finalRfai","")}</td>'
+          f'<td class="mn">{r.get("priFirst","")}</td>'
+          f'<td class="mn">{r.get("priLast","")}</td>'
+          f'<td class="mn tc">{pd2 if pf and pd2 else ""}</td>'
+          f'<td class="mn">{r.get("onAir","")}</td>'
+          f'<td class="mn">{r.get("baseDate","")}</td>'
+          f'<td style="font-size:11px;color:var(--ac);font-weight:600">'
+          f'{r.get("baseLabel","")}</td>')
+    if not months:
+        st=r.get('srStatus',''); sc=SCS.get(st,'bg2')
+        stl=('✕ '+st) if st=='Rejected RFAI' else st
+        dl=r.get('delay',-1); dv='' if dl==-1 else str(dl)
+        grp=r.get('group','N/A'); gc2=GCS.get(grp,'gn'); gl=GLS.get(grp,'N/A')
+        base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
+               f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
+               f'{dv if dv else "—"}</td>'
+               f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
+        return base+'</tr>'
+    jmk_r=r.get('journeyMK',''); emk_r=r.get('exitMK','')
+    js=mk_sort_val(jmk_r) if jmk_r else 0
+    es=mk_sort_val(emk_r) if emk_r else 999999
+    st_final=r.get('srStatus',''); dl_cur=r.get('delay',-1); grp_cur=r.get('group','N/A')
+    oa_str=r.get('onAir',''); oa_mk_str=''
+    if oa_str and st_final=='OnAir':
+        try:
+            fp=oa_str.split('-')
+            if len(fp)==3:
+                fmo=MON_IDX.get(fp[1].lower())
+                if fmo is not None: oa_mk_str=f"{MON[fmo]}'{str(int(fp[2]))[2:]}"
+        except Exception: pass
+    oa_ms=mk_sort_val(oa_mk_str) if oa_mk_str else 999999
+    anchor_d=None
+    for af in [r.get('finalRfai',''),r.get('rfaiNotice','')]:
+        if af:
+            try:
+                fp=af.split('-')
+                if len(fp)==3:
+                    fmo=MON_IDX.get(fp[1].lower())
+                    if fmo is not None:
+                        anchor_d=date(int(fp[2]),fmo+1,int(fp[0])); break
+            except Exception: pass
+    pri_days_val=r.get('priDays',0) or 0
+    for mk_col in months:
+        ms=mk_sort_val(mk_col)
+        if js==0 or ms<js or ms>es:
+            base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
+        elif st_final=='OnAir' and oa_mk_str:
+            if ms<oa_ms:
+                try:
+                    import calendar as _cal
+                    col_p=mk_col.split("'")
+                    mo_i=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].index(col_p[0][:3].lower())
+                    yr_c=int('20'+col_p[1]); last_d=_cal.monthrange(yr_c,mo_i+1)[1]
+                    mend=date(yr_c,mo_i+1,last_d)
+                    if anchor_d and mend>=anchor_d:
+                        live_d=max(0,(mend-anchor_d).days-(pri_days_val if isinstance(pri_days_val,int) else 0))
+                        lg='0-30' if live_d<=30 else '30-60' if live_d<=60 else '60-90' if live_d<=90 else '>90'
+                        gc2=GCS.get(lg,'gn'); gl2=GLS.get(lg,'N/A'); dv2=str(live_d)
+                    else: gc2='gn'; gl2='N/A'; dv2='—'
+                except Exception: gc2='gn'; gl2='N/A'; dv2='—'
+                sc2=SCS.get('OnAir Pending','bg2')
+                base+=(f'<td class="tm"><span class="badge {sc2}">OnAir Pending</span></td>'
+                       f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">{dv2}</td>'
+                       f'<td class="tm tc"><span class="{gc2}">{gl2}</span></td>')
+            elif ms==oa_ms:
+                sc2=SCS.get('OnAir','bg2'); dv2='' if dl_cur==-1 else str(dl_cur)
+                gc2=GCS.get(grp_cur,'gn'); gl2=GLS.get(grp_cur,'N/A')
+                base+=(f'<td class="tm"><span class="badge {sc2}">OnAir</span></td>'
+                       f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
+                       f'{dv2 if dv2 else "—"}</td>'
+                       f'<td class="tm tc"><span class="{gc2}">{gl2}</span></td>')
+            else:
+                base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
+        else:
+            sc=SCS.get(st_final,'bg2')
+            stl=('✕ '+st_final) if st_final=='Rejected RFAI' else st_final
+            dv='' if dl_cur==-1 else str(dl_cur)
+            gc2=GCS.get(grp_cur,'gn'); gl=GLS.get(grp_cur,'N/A')
+            base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
+                   f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
+                   f'{dv if dv else "—"}</td>'
+                   f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
+    return base+'</tr>'
+
+# ── FastAPI ────────────────────────────────────────────────────────────────
+app=FastAPI()
+app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
+from fastapi import Request
+from fastapi.responses import JSONResponse as _JR
+
+@app.middleware("http")
+async def _catch_all(request:Request,call_next):
+    try: return await call_next(request)
+    except Exception as e:
+        log.error(f"  Unhandled {request.url.path}: {e}")
+        return _JR({"error":str(e),"path":str(request.url.path)},status_code=500)
+
+@app.post("/api/upload")
+async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(...)):
+    if _job.running: return JSONResponse({"error":"Already processing"},status_code=409)
+    file_infos=[(f.filename,await f.read()) for f in files]
+    background_tasks.add_task(process_files_bg,file_infos)
+    return {"ok":True,"files":[f[0] for f in file_infos],"count":len(file_infos)}
+
+@app.get("/api/progress")
+def progress():
+    return {"running":_job.running,"done":_job.done,"error":_job.error,
+            "progress":_job.progress,"message":_job.message,
+            "current_file":_job.current_file,"total_files":_job.total_files,
+            "rows_processed":_job.rows_processed,"rows_kept":_job.rows_kept}
+
+@app.get("/api/ping")
+def ping(): return {"ok":True}
+
+@app.get("/api/summary")
+def summary():
+    fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
+    if not fs: return JSONResponse({"error":"No data"},status_code=404)
+    if _df_cache is not None:
+        df=_df_cache.copy()
+    else:
+        parts=[]
+        for f in fs:
+            try: parts.append(_read_pq(f,columns=['circle','category','bPrj','toco',
+                'domain','oem','tsp','srStatus','exitMK','journeyMK','srNo']))
+            except Exception: pass
+        df=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame()
+
+    total_rows=len(df); rows_no_sr=int((df['srNo']=='').sum())
+    unique_srs=df['srNo'].replace('',pd.NA).dropna().nunique()
+    dup_sr_rows=(total_rows-rows_no_sr)-unique_srs
+    no_rfai_drop=max(0,_job.rows_processed-total_rows)
+    dedup=_dedup_df(df.copy()); status_counts=dedup['srStatus'].value_counts().to_dict()
+    total_unique=unique_srs+rows_no_sr
+
+    def _sk(m):
+        if not m or "'" not in m: return 0
+        p=m.split("'")
+        try: return int('20'+p[1])*12+['jan','feb','mar','apr','may','jun',
+             'jul','aug','sep','oct','nov','dec'].index(p[0][:3].lower())
+        except: return 0
+
+    mons=sorted(df['exitMK'].dropna().replace('',pd.NA).dropna().unique().tolist(),key=_sk)
+    ST_ORD=['OnAir','OnAir Pending','Open PRI','Rejected RFAI','RFAI Pending']
+    rfai_by_month=[]
+    for jm in sorted(dedup['journeyMK'].replace('',pd.NA).dropna().unique().tolist(),key=_sk):
+        grp=dedup[dedup['journeyMK']==jm]
+        row={'rfai_month':jm,'total':len(grp)}
+        for st in ST_ORD: row[st]=int((grp['srStatus']==st).sum())
+        rfai_by_month.append(row)
+
+    def _ul(col): return sorted(df[col].dropna().replace('',pd.NA).dropna().unique().tolist())
+    return {"total":total_unique,"total_rows":total_rows,"unique_srs":unique_srs,
+            "rows_no_sr":rows_no_sr,"duplicate_rows":dup_sr_rows,
+            "total_scanned":_job.rows_processed,"no_rfai_dropped":no_rfai_drop,
+            "statuses":status_counts,"rfai_by_month":rfai_by_month,
+            "file_stats":getattr(_job,'file_stats',[]),
+            "circles":_ul('circle'),"categories":_ul('category'),
+            "projects":_ul('bPrj'),"tocos":_ul('toco'),
+            "domains":_ul('domain'),"oems":_ul('oem'),"months":mons}
+
+@app.get("/api/filter")
+def filter_data(
+    circle:str=Query(default=''),category:str=Query(default=''),
+    project:str=Query(default=''),toco:str=Query(default=''),
+    domain:str=Query(default=''),oem:str=Query(default=''),
+    status:str=Query(default=''),month:str=Query(default=''),
+    search:str=Query(default=''),page:int=Query(default=1),
+    page_size:int=Query(default=75)):
+    if _df_full_cache is not None:
+        df=_df_full_cache.copy()
+    else:
+        fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
+        if not fs: return JSONResponse({"error":"No data"},status_code=404)
+        parts=[]
+        for f in fs:
+            try:
+                flt=[]
+                if circle:   flt.append(('circle','in',circle.split(',')))
+                if status:   flt.append(('srStatus','in',status.split(',')))
+                if category: flt.append(('category','in',category.split(',')))
+                parts.append(_read_pq(f))
+            except Exception: pass
+        if not parts: return JSONResponse({"error":"No data"},status_code=404)
+        df=pd.concat(parts,ignore_index=True)
+    if circle:   df=df[df['circle'].isin(circle.split(','))]
+    if category: df=df[df['category'].isin(category.split(','))]
+    if project:  df=df[df['bPrj'].isin(project.split(','))]
+    if toco:     df=df[df['toco'].isin(toco.split(','))]
+    if domain:   df=df[df['domain'].isin(domain.split(','))]
+    if oem:      df=df[df['oem'].isin(oem.split(','))]
+    if status:   df=df[df['srStatus'].isin(status.split(','))]
+    if month:
+        ms=set(month.split(','))
+        df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)]
+    if search:
+        s=search.upper()
+        df=df[df['srNo'].str.upper().str.contains(s,na=False)|
+              df['siteId'].str.upper().str.contains(s,na=False)]
+    if len(df): df=_dedup_df(df); df=df.reset_index(drop=True)
+    total=len(df); pages=max(1,(total+page_size-1)//page_size)
+    page=max(1,min(page,pages)); s=(page-1)*page_size
+    if month:
+        show_months=sorted(month.split(','),key=mk_sort_val)
+    else:
+        all_mks=(set(df['exitMK'].dropna().replace('',pd.NA).dropna().unique())|
+                 set(df['journeyMK'].dropna().replace('',pd.NA).dropna().unique()))
+        show_months=sorted([m for m in all_mks if m],key=mk_sort_val)
+    page_df=df.iloc[s:s+page_size]
+    html=''.join(row_html(r.to_dict(),show_months) for _,r in page_df.iterrows())
+    return {"html":html,"total":total,"page":page,"pages":pages,
+            "start":s+1,"end":min(s+page_size,total),"months":show_months}
+
+@app.get("/api/dashboard")
+def dashboard_data(
+    circle:str=Query(default=''),category:str=Query(default=''),
+    oem:str=Query(default=''),toco:str=Query(default=''),
+    domain:str=Query(default=''),status:str=Query(default=''),
+    month:str=Query(default='')):
+    try: return _dash_inner(circle,category,oem,toco,domain,status,month)
+    except Exception as e:
+        log.error(f"  /api/dashboard: {e}")
+        return {"total":0,"statuses":{},"byMonth":[],"byCircle":[],"byOem":[],
+                "byCat":[],"agingBuckets":{},"avgDelay":None,"avgDelayPending":None}
+
+def _dash_inner(circle,category,oem,toco,domain,status,month):
+    has_filter=any([circle,category,oem,toco,domain,status,month])
+    if not has_filter and _dash_cache is not None: return _dash_cache
+    if _df_cache is None:
+        fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
+        if not fs: return JSONResponse({"error":"No data"},status_code=404)
+        _build_caches()
+    if _df_cache is None: return JSONResponse({"error":"Cache unavailable"},status_code=503)
+    df=_df_cache
+    if circle:   df=df[df['circle'].isin(circle.split(','))]
+    if category: df=df[df['category'].isin(category.split(','))]
+    if oem:      df=df[df['oem'].isin(oem.split(','))]
+    if toco:     df=df[df['toco'].isin(toco.split(','))]
+    if domain:   df=df[df['domain'].isin(domain.split(','))]
+    if status:   df=df[df['srStatus'].isin(status.split(','))]
+    if month:
+        ms=set(month.split(','))
+        df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)]
+    if not len(df):
+        return {"total":0,"statuses":{},"byMonth":[],"byCircle":[],"byOem":[],
+                "byCat":[],"agingBuckets":{},"avgDelay":None,"avgDelayPending":None}
+    return _compute_dash_aggs(df)
+
+@app.get("/api/rows")
+def get_rows():
+    return {"rows":[],"total":0,"capped":False,"deprecated":True}
+
+@app.get("/api/drill")
+def drill_data(
+    circle:str=Query(default=''),status:str=Query(default=''),
+    aging:str=Query(default=''),category:str=Query(default=''),
+    limit:int=Query(default=200)):
+    DCOLS=['srNo','siteId','circle','toco','oem','tsp','bPrj','domain','category',
+           'srStatus','delay','group','exitMK','rfaiNotice','finalRfai','onAir']
+    if _df_full_cache is not None:
+        avail=[c for c in DCOLS if c in _df_full_cache.columns]
+        df=_df_full_cache[avail].copy()
+        if circle:   df=df[df['circle'].isin(circle.split(','))]
+        if status:   df=df[df['srStatus'].isin(status.split(','))]
+        if category: df=df[df['category'].isin(category.split(','))]
+    else:
+        fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
+        if not fs: return JSONResponse({"error":"No data"},status_code=404)
+        parts=[]
+        for f in fs:
+            try: parts.append(_read_pq(f,columns=DCOLS))
+            except Exception: pass
+        if not parts: return {"rows":[],"total":0}
+        df=pd.concat(parts,ignore_index=True)
+        if circle:   df=df[df['circle'].isin(circle.split(','))]
+        if status:   df=df[df['srStatus'].isin(status.split(','))]
+        if category: df=df[df['category'].isin(category.split(','))]
+    if aging:
+        bounds={'0-30':(0,30),'30-60':(31,60),'60-90':(61,90),'>90':(91,9999)}
+        lo,hi=bounds.get(aging,(0,9999))
+        dv=pd.to_numeric(df['delay'],errors='coerce').where(df['delay']!=-1)
+        df=df[(dv>=lo)&(dv<=hi)]
+    df=df.sort_values('delay',ascending=False).head(limit)
+    rows=[]
+    for _,r in df.iterrows():
+        d=r.get('delay',-1)
+        rows.append({'srNo':str(r.get('srNo','')),'siteId':str(r.get('siteId','')),
+            'circle':str(r.get('circle','')),'toco':str(r.get('toco','')),
+            'oem':str(r.get('oem','')),'category':str(r.get('category','')),
+            'srStatus':str(r.get('srStatus','')),'delay':int(d) if str(d) not in ('nan','') and d!=-1 else None,
+            'group':str(r.get('group','N/A')),'exitMK':str(r.get('exitMK','')),
+            'rfaiNotice':str(r.get('rfaiNotice','')),'finalRfai':str(r.get('finalRfai','')),
+            'onAir':str(r.get('onAir',''))})
+    return {"rows":rows,"total":len(rows)}
+
+@app.get("/")
+def root():
+    if HTML_FILE.exists(): return FileResponse(str(HTML_FILE))
+    return JSONResponse({"error":"HTML not found"},status_code=404)
+
+@app.get("/{path:path}")
+def static(path:str):
+    f=SCRIPT_DIR/path
+    if f.exists() and f.is_file(): return FileResponse(str(f))
+    return JSONResponse({"error":"Not found"},status_code=404)
+
+if __name__=="__main__":
+    print("\n  ╔══════════════════════════════════════════════════╗")
+    print("  ║  RFAI Backend — v4 PyArrow-Safe Build           ║")
+    print("  ║  Open: http://localhost:8765                    ║")
+    print("  ╚══════════════════════════════════════════════════╝\n")
+    import webbrowser
+    threading.Thread(target=lambda:(time.sleep(1.2),webbrowser.open(f"http://localhost:{PORT}")),
+                     daemon=True).start()
+    uvicorn.run(app,host="0.0.0.0",port=PORT,log_level="warning",timeout_keep_alive=600)
