@@ -552,6 +552,37 @@ def _compute_dash_aggs(df):
                 "byOem":[],"byCat":[],"agingBuckets":{},
                 "avgDelay":None,"avgDelayPending":None}
 
+_PEND_ST = ('OnAir Pending','RFAI Pending','Open PRI')
+_BUCKETS = ('0-30','30-60','60-90','>90')
+
+def _bucket_counts(d):
+    """d: numpy int array of delays (>=0). Returns bucket dict."""
+    return {'0-30': int((d<=30).sum()), '30-60': int(((d>30)&(d<=60)).sum()),
+            '60-90': int(((d>60)&(d<=90)).sum()), '>90': int((d>90).sum())}
+
+def _group_aggs(keys, st, delay, is_pend, is_oa):
+    """Vectorised per-group stats: status counts, pending aging buckets,
+    OnAir delay buckets and averages. One pass, no per-row Python."""
+    out = {}
+    codes, uniq = pd.factorize(keys, sort=False)
+    order = np.argsort(codes, kind='stable')
+    bounds = np.searchsorted(codes[order], np.arange(len(uniq)+1))
+    for gi, k in enumerate(uniq):
+        if not k: continue
+        idx = order[bounds[gi]:bounds[gi+1]]
+        st_g = st[idx]; d_g = delay[idx]
+        vals, cnts = np.unique(st_g, return_counts=True)
+        pd_mask = is_pend[idx] & (d_g >= 0); oa_mask = is_oa[idx] & (d_g >= 0)
+        pdv = d_g[pd_mask]; oav = d_g[oa_mask]; anyv = d_g[d_g >= 0]
+        out[k] = {"total": int(len(idx)),
+                  "statuses": {str(v): int(c) for v, c in zip(vals, cnts)},
+                  "agingBreakdown": _bucket_counts(pdv),
+                  "avgPendAging": int(round(pdv.mean())) if len(pdv) else None,
+                  "oaAging": _bucket_counts(oav),
+                  "avgOaDelay": int(round(oav.mean())) if len(oav) else None,
+                  "avgDelay": int(round(anyv.mean())) if len(anyv) else None}
+    return out
+
 def _compute_dash_aggs_inner(df):
     MON_O=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
     def mk_sort(m):
@@ -566,51 +597,38 @@ def _compute_dash_aggs_inner(df):
                 "byOem":[],"byCat":[],"agingBuckets":{},
                 "avgDelay":None,"avgDelayPending":None}
 
-    delay_num   = pd.to_numeric(df['delay'], errors='coerce')
-    delay_clean = delay_num.where(delay_num != -1)
-    statuses    = df['srStatus'].value_counts().to_dict()
+    st    = df['srStatus'].astype(str).to_numpy()
+    delay = pd.to_numeric(df['delay'], errors='coerce').fillna(-1).astype(np.int32).to_numpy()
+    is_pend = np.isin(st, _PEND_ST); is_oa = st == 'OnAir'
+    def col(c): return df[c].astype(str).replace({'nan':'','None':''}).to_numpy()
 
-    byMonth=[]
-    for mk_v,grp in df.groupby('exitMK', observed=True):
-        if not mk_v: continue
-        sc=grp['srStatus'].value_counts().to_dict()
-        d_grp=delay_clean.loc[grp.index]
-        byMonth.append({"mk":mk_v,"total":len(grp),"statuses":sc,
-                         "avgDelay":round(d_grp.mean()) if d_grp.notna().any() else None})
-    byMonth.sort(key=lambda x:mk_sort(x['mk']))
+    vals, cnts = np.unique(st, return_counts=True)
+    statuses = {str(v): int(c) for v, c in zip(vals, cnts)}
 
-    byCircle=[]
-    for cir,grp in df.groupby('circle', observed=True):
-        if not cir: continue
-        sc=grp['srStatus'].value_counts().to_dict()
-        byCircle.append({"circle":cir,"total":len(grp),"statuses":sc,
-                          "oaRate":round(sc.get('OnAir',0)/len(grp)*100)})
-    byCircle.sort(key=lambda x:-x['total'])
-    byCircle=byCircle[:20]
+    bm = _group_aggs(col('exitMK'), st, delay, is_pend, is_oa)
+    byMonth = [dict(mk=k, **v) for k, v in bm.items()]
+    byMonth.sort(key=lambda x: mk_sort(x['mk']))
 
-    byOem=[]
-    for oem_,grp in df.groupby('oem', observed=True):
-        if not oem_: continue
-        byOem.append({"oem":oem_,"total":len(grp),
-                       "statuses":grp['srStatus'].value_counts().to_dict()})
-    byOem.sort(key=lambda x:-x['total'])
-    byOem=byOem[:15]
+    bc = _group_aggs(col('circle'), st, delay, is_pend, is_oa)
+    byCircle = [dict(circle=k, oaRate=round(v['statuses'].get('OnAir',0)/v['total']*100), **v)
+                for k, v in bc.items()]
+    byCircle.sort(key=lambda x: -x['total']); byCircle = byCircle[:20]
 
-    byCat=[]
-    for cat_,grp in df.groupby('category', observed=True):
-        if not cat_: continue
-        byCat.append({"category":cat_,"total":len(grp),
-                       "statuses":grp['srStatus'].value_counts().to_dict()})
-    byCat.sort(key=lambda x:-x['total'])
+    bo = _group_aggs(col('oem'), st, delay, is_pend, is_oa)
+    byOem = sorted([dict(oem=k, **v) for k, v in bo.items()], key=lambda x: -x['total'])[:15]
 
-    oa_d=delay_clean[df['srStatus']=='OnAir']
-    aging={"0-30":int((oa_d<=30).sum()),"30-60":int(((oa_d>30)&(oa_d<=60)).sum()),
-           "60-90":int(((oa_d>60)&(oa_d<=90)).sum()),">90":int((oa_d>90).sum())}
-    pend_d=delay_clean[df['srStatus'].isin(['OnAir Pending','RFAI Pending','Open PRI'])]
+    bk = _group_aggs(col('category'), st, delay, is_pend, is_oa)
+    byCat = sorted([dict(category=k, **v) for k, v in bk.items()], key=lambda x: -x['total'])
+
+    valid = delay >= 0
+    oa_d = delay[is_oa & valid]; pend_d = delay[is_pend & valid]; all_d = delay[valid]
     return {"total":total,"statuses":statuses,"byMonth":byMonth,
-            "byCircle":byCircle,"byOem":byOem,"byCat":byCat,"agingBuckets":aging,
-            "avgDelay":    round(delay_clean.mean()) if delay_clean.notna().any() else None,
-            "avgDelayPending":round(pend_d.mean()) if pend_d.notna().any() else None}
+            "byCircle":byCircle,"byOem":byOem,"byCat":byCat,
+            "agingBuckets":_bucket_counts(oa_d),
+            "pendAgingBuckets":_bucket_counts(pend_d),
+            "avgDelay":    int(round(all_d.mean())) if len(all_d) else None,
+            "avgOaDelay":  int(round(oa_d.mean())) if len(oa_d) else None,
+            "avgDelayPending":int(round(pend_d.mean())) if len(pend_d) else None}
 
 # ── HTML row builder ───────────────────────────────────────────────────────
 SCS={'OnAir':'bo','OnAir Pending':'bp','Rejected RFAI':'br-rej',
@@ -754,8 +772,9 @@ def ping(): return {"ok":True}
 def summary():
     fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
     if not fs: return JSONResponse({"error":"No data"},status_code=404)
-    if _df_cache is not None:
-        df=_df_cache.copy()
+    cached=_df_cache is not None
+    if cached:
+        df=_df_cache
     else:
         parts=[]
         for f in fs:
@@ -768,7 +787,7 @@ def summary():
     unique_srs=df['srNo'].replace('',pd.NA).dropna().nunique()
     dup_sr_rows=(total_rows-rows_no_sr)-unique_srs
     no_rfai_drop=max(0,_job.rows_processed-total_rows)
-    dedup=_dedup_df(df.copy()); status_counts=dedup['srStatus'].value_counts().to_dict()
+    dedup=df if cached else _dedup_df(df.copy()); status_counts=dedup['srStatus'].value_counts().to_dict()
     total_unique=unique_srs+rows_no_sr
 
     def _sk(m):
@@ -805,8 +824,9 @@ def filter_data(
     status:str=Query(default=''),month:str=Query(default=''),
     search:str=Query(default=''),page:int=Query(default=1),
     page_size:int=Query(default=75)):
-    if _df_full_cache is not None:
-        df=_df_full_cache.copy()
+    cached=_df_full_cache is not None
+    if cached:
+        df=_df_full_cache
     else:
         fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
         if not fs: return JSONResponse({"error":"No data"},status_code=404)
@@ -833,9 +853,10 @@ def filter_data(
         df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)]
     if search:
         s=search.upper()
-        df=df[df['srNo'].str.upper().str.contains(s,na=False)|
-              df['siteId'].str.upper().str.contains(s,na=False)]
-    if len(df): df=_dedup_df(df); df=df.reset_index(drop=True)
+        df=df[df['srNo'].astype(str).str.upper().str.contains(s,na=False,regex=False)|
+              df['siteId'].astype(str).str.upper().str.contains(s,na=False,regex=False)]
+    if len(df) and not cached: df=_dedup_df(df)
+    df=df.reset_index(drop=True)
     total=len(df); pages=max(1,(total+page_size-1)//page_size)
     page=max(1,min(page,pages)); s=(page-1)*page_size
     if month:
@@ -919,16 +940,15 @@ def drill_data(
         dv=pd.to_numeric(df['delay'],errors='coerce').where(df['delay']!=-1)
         df=df[(dv>=lo)&(dv<=hi)]
     df=df.sort_values('delay',ascending=False).head(limit)
-    rows=[]
-    for _,r in df.iterrows():
-        d=r.get('delay',-1)
-        rows.append({'srNo':str(r.get('srNo','')),'siteId':str(r.get('siteId','')),
-            'circle':str(r.get('circle','')),'toco':str(r.get('toco','')),
-            'oem':str(r.get('oem','')),'category':str(r.get('category','')),
-            'srStatus':str(r.get('srStatus','')),'delay':int(d) if str(d) not in ('nan','') and d!=-1 else None,
-            'group':str(r.get('group','N/A')),'exitMK':str(r.get('exitMK','')),
-            'rfaiNotice':str(r.get('rfaiNotice','')),'finalRfai':str(r.get('finalRfai','')),
-            'onAir':str(r.get('onAir',''))})
+    OUTC=['srNo','siteId','circle','toco','oem','category','srStatus','group',
+          'exitMK','rfaiNotice','finalRfai','onAir']
+    out=pd.DataFrame({c:(df[c].astype(str).replace({'nan':'','None':''}).to_numpy()
+                         if c in df.columns else np.full(len(df),''))
+                      for c in OUTC})
+    out['group']=out['group'].replace('', 'N/A')
+    dv=pd.to_numeric(df['delay'],errors='coerce').to_numpy() if 'delay' in df.columns else np.full(len(df),np.nan)
+    out['delay']=[None if (v!=v or v==-1) else int(v) for v in dv]
+    rows=out.to_dict('records')
     return {"rows":rows,"total":len(rows)}
 
 @app.get("/")

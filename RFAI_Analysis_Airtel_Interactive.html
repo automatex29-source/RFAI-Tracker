@@ -6537,7 +6537,7 @@ async function _showCircleBreakdown(metric){
         case 'rfaiRej':   val=(sts['Rejected RFAI']||sts['RFAI Rejected']||0); break;
         case 'rfaiPend':  val=sts['RFAI Pending']||0; break;
         case 'pend30':    val=(ab['30-60']||0)+(ab['60-90']||0)+(ab['>90']||0); break;
-        case 'avgDelay':  val=c.avgDelay||null; break;
+        case 'avgDelay':  val=(c.avgOaDelay!=null?c.avgOaDelay:c.avgDelay)||null; break;
         default: val=0;
       }
       return {circle:c.circle, total:c.total||0, val, topCat:c.topCat||'—'};
@@ -6560,7 +6560,7 @@ async function _showCircleBreakdown(metric){
         case 'rfaiRej':   v=sts['Rejected RFAI']||0; break;
         case 'rfaiPend':  v=sts['RFAI Pending']||0; break;
         case 'pend30':    v=(ab['30-60']||0)+(ab['60-90']||0)+(ab['>90']||0); break;
-        case 'avgDelay':  v=c.avgDelay||0; break;
+        case 'avgDelay':  v=(c.avgOaDelay!=null?c.avgOaDelay:c.avgDelay)||0; break;
       }
       if(v>0) catSums[c.category||'—']=v;
     });
@@ -8648,58 +8648,8 @@ async function _renderMgmtFromPython(){
 
   const months=(j.byMonth||[]).sort((a,b)=>sortMK(a.mk)-sortMK(b.mk));
 
-  // ── Compute pending aging breakdown per month from /api/drill ──
-  // The Python /api/dashboard does NOT return agingBreakdown in byMonth (all zeros).
-  // We fetch all pending SRs via /api/drill (returns r.delay, r.group, r.exitMK per SR)
-  // and bucket them into the correct month. This matches what the journey table shows.
-  try {
-    const _mgFp = new URLSearchParams();
-    if(ci&&ci.length) _mgFp.set('circle',ci.join(','));
-    if(oe&&oe.length) _mgFp.set('oem',oe.join(','));
-    if(ca&&ca.length){
-      const _rc2=[];
-      if(typeof MGMT_CAT_MAP!=='undefined') Object.entries(MGMT_CAT_MAP).forEach(([k,v])=>{ if(ca.includes(v)) _rc2.push(k); });
-      else ca.forEach(c=>_rc2.push(c));
-      if(_rc2.length) _mgFp.set('category',_rc2.join(','));
-    }
-    _mgFp.set('status','OnAir Pending,RFAI Pending,Open PRI');
-    _mgFp.set('limit','99999');
-    const _pr = await fetch(_B+'/api/drill?'+_mgFp.toString());
-    const _pj = await _pr.json();
-    const _pendRows = _pj.rows || [];
-    // Build agingBreakdown per exitMK
-    const abByMk = {};
-    for(const r of _pendRows){
-      const mk = r.exitMK||r.exit_mk||r.month; if(!mk) continue;
-      if(!abByMk[mk]) abByMk[mk] = {'0-30':0,'30-60':0,'60-90':0,'>90':0, sum:0, cnt:0};
-      const ag = (r.delay!=null&&r.delay>=0) ? r.delay : null;
-      if(ag!=null){
-        abByMk[mk].sum += ag; abByMk[mk].cnt++;
-        if(ag<=30)      abByMk[mk]['0-30']++;
-        else if(ag<=60) abByMk[mk]['30-60']++;
-        else if(ag<=90) abByMk[mk]['60-90']++;
-        else            abByMk[mk]['>90']++;
-      } else {
-        // fallback: use group string if delay absent
-        const g = r.group||'';
-        if(g==='0-30')      abByMk[mk]['0-30']++;
-        else if(g==='30-60')abByMk[mk]['30-60']++;
-        else if(g==='60-90')abByMk[mk]['60-90']++;
-        else if(g==='>90')  abByMk[mk]['>90']++;
-      }
-    }
-    // Patch each byMonth entry with real aging data
-    months.forEach(m=>{
-      const ab = abByMk[m.mk];
-      if(ab){
-        m.agingBreakdown = {'0-30':ab['0-30'],'30-60':ab['30-60'],'60-90':ab['60-90'],'>90':ab['>90']};
-        if(ab.cnt) m.avgPendAging = Math.round(ab.sum/ab.cnt);
-      }
-    });
-  } catch(_e){
-    // Drill fetch failed — aging buckets stay 0, not fatal
-    console.warn('[MGMT] aging drill fetch failed:',_e.message);
-  }
+  // Pending aging (agingBreakdown/avgPendAging) and OnAir delay buckets
+  // (oaAging/avgOaDelay) come pre-computed per month from /api/dashboard.
 
   // Grand totals — per-month aging/delay buckets only (summed from byMonth)
   // Status counts (OnAir, Pending, etc.) come from j.statuses (journey-table source of truth)
@@ -8729,11 +8679,13 @@ async function _renderMgmtFromPython(){
     GT.pend60_90 +=(ab['60-90']||0);
     GT.pend90    +=(ab['>90']||0);
     const s=m.statuses||{};
-    if(m.avgDelay){GT.oaDelaySum+=(m.avgDelay*(s['OnAir']||0));GT.oaDelayCnt+=(s['OnAir']||0);}
-    GT.oa0_30  +=(ab['0-30']||0);
-    GT.oa30_60 +=(ab['30-60']||0);
-    GT.oa60_90 +=(ab['60-90']||0);
-    GT.oa90    +=(ab['>90']||0);
+    const oaD=m.avgOaDelay!=null?m.avgOaDelay:m.avgDelay;
+    if(oaD){GT.oaDelaySum+=(oaD*(s['OnAir']||0));GT.oaDelayCnt+=(s['OnAir']||0);}
+    const oab=m.oaAging||{};
+    GT.oa0_30  +=(oab['0-30']||0);
+    GT.oa30_60 +=(oab['30-60']||0);
+    GT.oa60_90 +=(oab['60-90']||0);
+    GT.oa90    +=(oab['>90']||0);
   });
 
   // Update title/sub
@@ -8808,7 +8760,7 @@ async function _renderMgmtFromPython(){
       const s=c.statuses||{},ab=c.agingBreakdown||{};
       const p30=(ab['30-60']||0)+(ab['60-90']||0)+(ab['>90']||0);
       const pTot=(s['OnAir Pending']||0)+(s['RFAI Pending']||0)+(s['Open PRI']||0);
-      const avg=c.avgDelay||null;
+      const avg=c.avgPendAging!=null?c.avgPendAging:null;
       const bg=ri%2===0?'#fffbf5':'#fff';
       const pc=colorP30(p30);
       t2+=`<tr style="background:${bg}" onmouseover="this.style.background='#fff7ed'" onmouseout="this.style.background='${bg}'">
@@ -8829,7 +8781,7 @@ async function _renderMgmtFromPython(){
       <th style="background:linear-gradient(135deg,#065f46,#10b981);color:#fff;${TH2}">Avg Delay</th>
     </tr></thead><tbody>`;
     items.forEach((c,ri)=>{
-      const s=c.statuses||{};const oa=s['OnAir']||0;const avg=c.avgDelay||null;
+      const s=c.statuses||{};const oa=s['OnAir']||0;const avg=c.avgOaDelay!=null?c.avgOaDelay:(c.avgDelay||null);
       const bg=ri%2===0?'#f0fdf6':'#fff';
       const ac=colorAvgO(avg);
       t3+=`<tr style="background:${bg}">
@@ -8900,7 +8852,7 @@ async function _renderMgmtFromPython(){
     const pTot=(s['OnAir Pending']||0)+(s['RFAI Pending']||0)+(s['Open PRI']||0);
     const p30_60=ab['30-60']||0, p60_90=ab['60-90']||0, p90=ab['>90']||0;
     const p30plus=p30_60+p60_90+p90;
-    const avg = m.avgPendAging != null ? m.avgPendAging : (m.avgDelay||null);
+    const avg = m.avgPendAging != null ? m.avgPendAging : null;
     const ac=colorAvgP(avg);
     const bg=ri%2===0?'#fffbf5':'#fff';
     const TDO=TD.replace('#f0f4ff','#fef3c7');
@@ -8964,10 +8916,10 @@ async function _renderMgmtFromPython(){
     +'</tr></thead><tbody>';
   months.forEach((m,ri)=>{
     const s=m.statuses||{};
-    const ab=m.agingBreakdown||{};
+    const ab=m.oaAging||{};
     const oa0_30=ab['0-30']||0, oa30_60=ab['30-60']||0, oa60_90=ab['60-90']||0, oa90=ab['>90']||0;
     const oaTot=s['OnAir']||0;
-    const avg=m.avgDelay||null;
+    const avg=m.avgOaDelay!=null?m.avgOaDelay:(m.avgDelay||null);
     const ac=colorAvgO(avg);
     const bg=ri%2===0?'#f0fdf6':'#fff';
     const bk={'0–30D':oa0_30,'31–60D':oa30_60,'61–90D':oa60_90,'>90D':oa90};
