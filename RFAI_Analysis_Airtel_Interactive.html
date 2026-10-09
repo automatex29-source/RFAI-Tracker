@@ -7187,7 +7187,7 @@ function _doMgmtExport(data){
 // Streams rows line-by-line so 10TB+ datasets load without OOM
 // ══════════════════════════════════════════════════════════════
 
-const _CONV_BASE = 'http://localhost:8765';
+const _CONV_BASE = (location.protocol==='file:') ? 'http://localhost:8765' : location.origin;
 let _convServerReady = false;
 
 async function checkConverterServer() {
@@ -7401,7 +7401,7 @@ window.addEventListener('load', () => {
 // ══════════════════════════════════════════════════════════════
 // PYTHON BACKEND — all processing in Python, browser renders
 // ══════════════════════════════════════════════════════════════
-const _B=(()=>{const loc=window.location;if(loc.protocol==='file:')return 'http://localhost:8765';if(loc.hostname==='localhost'||loc.hostname==='127.0.0.1')return loc.origin;return 'http://localhost:8765';})();
+const _B=(()=>{const loc=window.location;if(loc.protocol==='file:')return 'http://localhost:8765';return loc.origin;})();
 let _curPage=1,_pageSize=75,_pollTmr=null;
 
 // Stub file-handling — replaced by Python upload

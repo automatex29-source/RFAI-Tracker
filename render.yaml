@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: rfai-tracker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python converter.py
+    healthCheckPath: /api/ping
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7

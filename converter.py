@@ -44,7 +44,7 @@ log = logging.getLogger("rfai")
 SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 HTML_FILE  = next(SCRIPT_DIR.glob("RFAI_Analysis_Airtel*.html"),
                   SCRIPT_DIR / "RFAI_Analysis_Airtel_v10.html")
-PORT  = 8765
+PORT  = int(os.environ.get("PORT", 8765))
 CHUNK = 50_000
 TODAY = date.today()
 
@@ -958,8 +958,10 @@ def root():
 
 @app.get("/{path:path}")
 def static(path:str):
-    f=SCRIPT_DIR/path
-    if f.exists() and f.is_file(): return FileResponse(str(f))
+    f=(SCRIPT_DIR/path).resolve()
+    if (f.is_file() and f.is_relative_to(SCRIPT_DIR.resolve())
+            and f.suffix.lower() in ('.html','.css','.js','.png','.jpg','.svg','.ico','.json')):
+        return FileResponse(str(f))
     return JSONResponse({"error":"Not found"},status_code=404)
 
 if __name__=="__main__":
@@ -967,7 +969,8 @@ if __name__=="__main__":
     print("  ║  RFAI Backend — v4 PyArrow-Safe Build           ║")
     print("  ║  Open: http://localhost:8765                    ║")
     print("  ╚══════════════════════════════════════════════════╝\n")
-    import webbrowser
-    threading.Thread(target=lambda:(time.sleep(1.2),webbrowser.open(f"http://localhost:{PORT}")),
-                     daemon=True).start()
+    if not os.environ.get("RENDER"):   # local run only — no browser on a server
+        import webbrowser
+        threading.Thread(target=lambda:(time.sleep(1.2),webbrowser.open(f"http://localhost:{PORT}")),
+                         daemon=True).start()
     uvicorn.run(app,host="0.0.0.0",port=PORT,log_level="warning",timeout_keep_alive=600)
