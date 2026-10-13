@@ -25,12 +25,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import openpyxl
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from converter import map_headers, process_row, OUT, COLS, CHUNK  # noqa: E402
+from converter import map_headers, process_row, iter_excel_rows, OUT, COLS, CHUNK  # noqa: E402
 
-EXTS = {'.csv', '.xlsx', '.xlsm'}
+EXTS = {'.csv', '.xlsx', '.xlsm', '.xls', '.xlsb'}
 DEDUP_NAME = 'rfai_dedup.parquet'
 
 
@@ -67,23 +66,12 @@ def _rows_csv(path):
 
 
 def _rows_xlsx(path):
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    try:
-        best, best_sc = wb.sheetnames[0], 0
-        for sn in wb.sheetnames:
-            r1 = next(wb[sn].iter_rows(max_row=1, values_only=True), None)
-            if r1:
-                sc = sum(1 for c in r1 if c and any(k in str(c).upper() for k in
-                         ('RFAI', 'CIRCLE', 'SR_NO', 'SITE', 'BROAD', 'OA')))
-                if sc > best_sc: best, best_sc = sn, sc
-        it = wb[best].iter_rows(values_only=True)
-        hdr = next(it, None)
-        if not hdr: return
-        cm = map_headers([str(c).strip() if c else '' for c in hdr])
-        for row in it:
-            yield tuple(row), cm
-    finally:
-        wb.close()
+    it = iter_excel_rows(path)
+    hdr = next(it, None)
+    if not hdr: return
+    cm = map_headers([str(c).strip() if c is not None else '' for c in hdr])
+    for row in it:
+        yield row, cm
 
 
 def convert_one(src, raw_dir, ord_):

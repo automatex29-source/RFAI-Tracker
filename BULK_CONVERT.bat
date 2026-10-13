@@ -10,6 +10,6 @@ if "%~1"=="" (
   echo Usage: BULK_CONVERT.bat  FOLDER_WITH_EXCEL_OR_CSV_FILES
   pause & exit /b 1
 )
-pip install pandas pyarrow openpyxl fastapi uvicorn python-multipart duckdb boto3 -q --disable-pip-version-check
+pip install pandas pyarrow openpyxl python-calamine fastapi uvicorn python-multipart duckdb boto3 -q --disable-pip-version-check
 python "%~dp0bulk_convert.py" "%~1" "%~dp0rfai_bulk_out" --upload
 pause

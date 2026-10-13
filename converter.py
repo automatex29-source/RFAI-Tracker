@@ -275,6 +275,42 @@ OUT = ['srNo','siteId','circle','toco','partner','bPrj','domain','oem','tsp','ca
        'rfaiNotice','rfaiRej','rfaiRegen','rfaiReoffer','finalRfai',
        'priFirst','priLast','priDays','onAir','baseDate','baseLabel']
 
+_SHEET_KEYS = ('RFAI','CIRCLE','SR_NO','SITE','BROAD','OA')
+
+def _norm_cell(v):
+    # calamine returns every number as float: 123456.0 -> 123456 (as openpyxl did)
+    if isinstance(v, float) and v.is_integer(): return int(v)
+    return None if v == '' else v
+
+def iter_excel_rows(path):
+    """Yield rows (tuples) of the best-matching sheet, header row first.
+    Uses calamine (Rust, ~10x faster than openpyxl, also reads .xls/.xlsb/.ods);
+    falls back to openpyxl if calamine is unavailable."""
+    try:
+        from python_calamine import CalamineWorkbook
+    except ImportError:
+        CalamineWorkbook = None
+    if CalamineWorkbook is not None:
+        wb = CalamineWorkbook.from_path(str(path))
+        best, best_sc = 0, -1
+        for i, sn in enumerate(wb.sheet_names):
+            hdr = next(iter(wb.get_sheet_by_index(i).iter_rows()), None) if len(wb.sheet_names) > 1 else []
+            sc = sum(1 for c in (hdr or []) if c and any(k in str(c).upper() for k in _SHEET_KEYS))
+            if sc > best_sc: best, best_sc = i, sc
+        for row in wb.get_sheet_by_index(best).iter_rows():
+            yield tuple(_norm_cell(v) for v in row)
+        return
+    wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    try:
+        best, best_sc = wb.sheetnames[0], -1
+        for sn in wb.sheetnames:
+            r1 = next(wb[sn].iter_rows(max_row=1, values_only=True), None) or ()
+            sc = sum(1 for c in r1 if c and any(k in str(c).upper() for k in _SHEET_KEYS))
+            if sc > best_sc: best, best_sc = sn, sc
+        yield from wb[best].iter_rows(values_only=True)
+    finally:
+        wb.close()
+
 def to_pq(rows, path):
     if not rows: return
     arrays = {}
@@ -394,23 +430,21 @@ def _dedup_df(df):
     return df.iloc[keep_all].reset_index(drop=True)
 
 # ── CSV reader — pandas.read_csv, no Sniffer ──────────────────────────────
-def _process_csv(content: bytes, fname: str, grand: int, kept: int, chunk_idx: int):
-    for enc in ('utf-8','utf-8-sig','latin-1','cp1252'):
-        try: text = content.decode(enc); break
-        except Exception: text = None
-    if text is None: text = content.decode('utf-8', errors='replace')
-
-    # Detect delimiter from first line
-    first_line = text[:2000]
+def _process_csv(path, fname: str, grand: int, kept: int, chunk_idx: int):
+    with open(path, 'rb') as fh: head = fh.read(65536)
+    enc = 'cp1252'
+    for e in ('utf-8-sig', 'utf-8'):
+        try: head.decode(e); enc = e; break
+        except UnicodeDecodeError as ex:
+            if ex.start > len(head) - 4: enc = e; break   # cut mid-character at buffer end
+    first_line = head.decode(enc, errors='replace')[:2000]
     delim = ','
     for d in (',','\t','|',';'):
         if d in first_line: delim = d; break
-
-    buf = io.StringIO(text)
     try:
         reader = pd.read_csv(
-            buf, sep=delim, dtype=str, keep_default_na=False,
-            chunksize=CHUNK, low_memory=False, on_bad_lines='skip')
+            path, sep=delim, dtype=str, keep_default_na=False, encoding=enc,
+            encoding_errors='replace', chunksize=CHUNK, low_memory=False, on_bad_lines='skip')
     except Exception as e:
         log.error(f"  CSV open failed {fname}: {e}")
         return grand, kept, chunk_idx
@@ -425,25 +459,27 @@ def _process_csv(content: bytes, fname: str, grand: int, kept: int, chunk_idx: i
             grand += 1
             r = process_row(row, cm)
             if r: batch.append(r); kept += 1
+        _job.rows_processed = grand; _job.rows_kept = kept
+        _job.message = f'{fname} — {grand:,} rows read'
         if len(batch) >= CHUNK:
-            to_pq(batch, _cache_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+            to_pq(batch, _stage_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
             batch = []; chunk_idx += 1
             _job.rows_processed = grand; _job.rows_kept = kept
     if batch:
-        to_pq(batch, _cache_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+        to_pq(batch, _stage_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
         chunk_idx += 1
     return grand, kept, chunk_idx
 
 # ── Background file processor ──────────────────────────────────────────────
+_stage_dir = _cache_dir / '_incoming'   # new upload is built here, swapped in only on success
+
 def process_files_bg(file_infos):
     global _job, _cache_dir, _df_cache, _df_full_cache, _dash_cache
-    _df_cache=None; _df_full_cache=None; _dash_cache=None
-    gc.collect()
     _job.reset(); _job.running=True
-    _cache_dir.mkdir(exist_ok=True)
-    for f in _cache_dir.glob("*.parquet"): f.unlink()
+    _stage_dir.mkdir(parents=True, exist_ok=True)
+    for f in _stage_dir.glob("*.parquet"): f.unlink()
     _job.cache_dir=_cache_dir; _job.total_files=len(file_infos)
-    grand=0; kept=0
+    grand=0; kept=0; errors=[]
 
     for fi,(fname,content) in enumerate(file_infos):
         _job.current_file=fname
@@ -455,33 +491,30 @@ def process_files_bg(file_infos):
             if ext=='.csv':
                 grand, kept, chunk_idx = _process_csv(content, fname, grand, kept, chunk_idx)
             else:
-                wb=openpyxl.load_workbook(io.BytesIO(content),read_only=True,data_only=True)
-                best=wb.sheetnames[0]; best_sc=0
-                for sn in wb.sheetnames:
-                    ws=wb[sn]; r1=next(ws.iter_rows(max_row=1,values_only=True),None)
-                    if r1:
-                        sc=sum(1 for c_ in r1 if c_ and any(
-                            k in str(c_).upper()
-                            for k in ('RFAI','CIRCLE','SR_NO','SITE','BROAD','OA')))
-                        if sc>best_sc: best_sc=sc; best=sn
-                ws=wb[best]; it=ws.iter_rows(values_only=True)
-                headers=[str(c_).strip() if c_ else '' for c_ in next(it)]
+                it=iter_excel_rows(content)
+                hdr=next(it,None) or ()
+                headers=[str(c_).strip() if c_ is not None else '' for c_ in hdr]
                 cm=map_headers(headers)
                 log.info(f"  Matched {sum(1 for v in cm.values() if v is not None)}/{len(COLS)} cols")
                 batch=[]
                 for row in it:
-                    grand+=1; r=process_row(tuple(row),cm)
+                    grand+=1; r=process_row(row,cm)
                     if r: batch.append(r); kept+=1
-                    if len(batch)>=CHUNK:
-                        to_pq(batch,_cache_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
-                        batch=[]; chunk_idx+=1
+                    if grand % 5000 == 0:
                         _job.rows_processed=grand; _job.rows_kept=kept
+                        _job.message=f'[{fi+1}/{len(file_infos)}] {fname} — {grand:,} rows read'
+                    if len(batch)>=CHUNK:
+                        to_pq(batch,_stage_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
+                        batch=[]; chunk_idx+=1
                 if batch:
-                    to_pq(batch,_cache_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
-                wb.close()
+                    to_pq(batch,_stage_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
         except Exception as e:
             log.error(f"  ERROR {fname}: {e}")
             import traceback; traceback.print_exc()
+            errors.append(f'{fname}: {e}')
+        finally:
+            try: Path(content).unlink()
+            except Exception: pass
 
         ps=sum(s['scanned'] for s in _job.file_stats)
         pk=sum(s['kept']    for s in _job.file_stats)
@@ -489,19 +522,31 @@ def process_files_bg(file_infos):
         _job.rows_processed=grand; _job.rows_kept=kept
 
     _job.rows_no_sr=0
-    for pf in sorted(_cache_dir.glob("*.parquet")):
+    for pf in sorted(_stage_dir.glob("*.parquet")):
         try:
             t=pq.read_table(str(pf),columns=['srNo'])
             _job.rows_no_sr+=int(t.column('srNo').to_pylist().count(''))
         except Exception: pass
 
-    _job.progress=100; _job.done=True; _job.running=False
-    _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
-    log.info(_job.message)
     log.info(f"  Total scanned: {grand:,} | With RFAI date: {kept:,} | "
              f"Dropped (no RFAI): {grand-kept:,} | Blank SR#: {_job.rows_no_sr:,}")
-    _build_caches()
+    if kept == 0:
+        _job.error = ('No rows with an RFAI date were found. ' + ' | '.join(errors)
+                      if errors else 'No rows with an RFAI date were found in the file(s).')
+        for f in _stage_dir.glob("*.parquet"): f.unlink()
+        _job.progress=100; _job.running=False; return   # existing data left untouched
+    _job.progress=92; _job.message='Preparing dashboard…'
+    # success: replace the old data with the new upload
+    _df_cache=None; _df_full_cache=None; _dash_cache=None; gc.collect()
+    for f in _cache_dir.glob("*.parquet"): f.unlink()
+    for f in _stage_dir.glob("*.parquet"): os.replace(f, _cache_dir / f.name)
+    _build_caches()                      # finish BEFORE reporting done, so the page
+    _job.progress=100; _job.done=True    # reads the ready cache instead of redoing it
+    _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
+    if errors: _job.message += ' (skipped: ' + ' | '.join(errors) + ')'
+    log.info(_job.message)
     if S3_BUCKET: save_to_storage()
+    _job.running=False
 
 # ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
 def _build_caches():
@@ -888,7 +933,14 @@ async def _catch_all(request:Request,call_next):
 @app.post("/api/upload")
 async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(...)):
     if _job.running: return JSONResponse({"error":"Already processing"},status_code=409)
-    file_infos=[(f.filename,await f.read()) for f in files]
+    # stream to disk (not RAM) — the free server only has 512 MB
+    up_dir=_cache_dir/'_uploads'; up_dir.mkdir(parents=True,exist_ok=True)
+    import shutil, uuid
+    file_infos=[]
+    for f in files:
+        dst=up_dir/f"{uuid.uuid4().hex}{Path(f.filename or 'x').suffix.lower()}"
+        with open(dst,'wb') as out: shutil.copyfileobj(f.file,out,1024*1024)
+        file_infos.append((f.filename,str(dst)))
     background_tasks.add_task(process_files_bg,file_infos)
     return {"ok":True,"files":[f[0] for f in file_infos],"count":len(file_infos)}
 
