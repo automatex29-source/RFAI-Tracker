@@ -113,6 +113,10 @@ Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render s
 Older Excel/CSV files in the bucket are deleted automatically. The page header shows what is loaded,
 e.g. `24,428 SRs · Book2.xlsx · 13-Oct-2026 14:05`.
 
+**Large Excel files:** on the website, Excel is converted to CSV **in your browser** before
+uploading (your PC has far more memory than the free server). For uploads straight into the bucket,
+prefer **CSV** (Excel → Save As → CSV) for big files.
+
 **Updating data without the website:** upload your Excel/CSV straight into the bucket
 (e.g. Supabase → Storage → rfai-data → **Upload files**), then click **↻ Reload stored data**
 on the site. Files newer than the last conversion are converted automatically. Files over

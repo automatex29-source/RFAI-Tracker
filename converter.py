@@ -48,6 +48,7 @@ HTML_FILE  = next(SCRIPT_DIR.glob("RFAI_Analysis_Airtel*.html"),
                   SCRIPT_DIR / "RFAI_Analysis_Airtel_v10.html")
 PORT  = int(os.environ.get("PORT", 8765))
 CHUNK = 50_000
+FLUSH = 10_000   # converted rows held in RAM before writing to disk
 TODAY = date.today()
 
 # ── Column aliases ─────────────────────────────────────────────────────────
@@ -524,26 +525,31 @@ def _process_csv(path, fname: str, grand: int, kept: int, chunk_idx: int):
     for d in (',','\t','|',';'):
         if d in first_line: delim = d; break
     try:
+        # read only the columns the tool uses (often ~20 of 60+): far less memory
+        headers = list(pd.read_csv(path, sep=delim, nrows=0, encoding=enc,
+                                   encoding_errors='replace').columns)
+        full_cm = map_headers(headers)
+        log.info(f"  Matched {sum(1 for v in full_cm.values() if v is not None)}/{len(COLS)} cols")
+        used = sorted({i for i in full_cm.values() if i is not None})
+        pos = {orig: k for k, orig in enumerate(used)}
+        cm = {col: (pos[i] if i is not None else None) for col, i in full_cm.items()}
         reader = pd.read_csv(
-            path, sep=delim, dtype=str, keep_default_na=False, encoding=enc,
-            encoding_errors='replace', chunksize=CHUNK, low_memory=False, on_bad_lines='skip')
+            path, sep=delim, dtype=str, keep_default_na=False, encoding=enc, usecols=used,
+            encoding_errors='replace', chunksize=20000, low_memory=False, on_bad_lines='skip')
     except Exception as e:
         log.error(f"  CSV open failed {fname}: {e}")
         return grand, kept, chunk_idx
 
-    headers = None; cm = None; batch = []
+    batch = []
     for chunk_df in reader:
-        if headers is None:
-            headers = list(chunk_df.columns)
-            cm = map_headers(headers)
-            log.info(f"  Matched {sum(1 for v in cm.values() if v is not None)}/{len(COLS)} cols")
+        chunk_df = chunk_df[[headers[i] for i in used]] if len(used) else chunk_df
         for row in chunk_df.itertuples(index=False, name=None):
             grand += 1
             r = process_row(row, cm)
             if r: batch.append(r); kept += 1
         _job.rows_processed = grand; _job.rows_kept = kept
         _job.message = f'{fname} — {grand:,} rows read'
-        if len(batch) >= CHUNK:
+        if len(batch) >= FLUSH:
             to_pq(batch, _stage_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
             batch = []; chunk_idx += 1
             _job.rows_processed = grand; _job.rows_kept = kept
@@ -596,7 +602,7 @@ def _process_files(file_infos, source='website upload'):
                     if grand % 5000 == 0:
                         _job.rows_processed=grand; _job.rows_kept=kept
                         _job.message=f'[{fi+1}/{len(file_infos)}] {fname} — {grand:,} rows read'
-                    if len(batch)>=CHUNK:
+                    if len(batch)>=FLUSH:
                         to_pq(batch,_stage_dir/f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
                         batch=[]; chunk_idx+=1
                 if batch:
@@ -1009,8 +1015,8 @@ def _load_once(force=False):
             if prev and prev.get('files') == raw_sig and prev.get('attempts', 0) >= 2 and not force:
                 _storage_status['last_load'] += ' — conversion skipped (crashed twice)'
                 raise RuntimeError('Converting ' + ', '.join(o['Key'] for o in raw_objs) +
-                                   ' crashed the server twice (file too big for the free server). '
-                                   'Upload it on the website instead, or split it into smaller files.')
+                                   ' crashed the server twice (too big to convert on the free server). '
+                                   'Upload it on the website instead — Excel is converted in your browser there.')
             attempts = (prev.get('attempts', 0) if prev and prev.get('files') == raw_sig else 0) + 1
             s3.put_object(Bucket=S3_BUCKET, Key=marker,
                           Body=json.dumps({'files': raw_sig, 'attempts': attempts}).encode())

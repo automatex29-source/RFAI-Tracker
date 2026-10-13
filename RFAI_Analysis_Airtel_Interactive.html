@@ -7518,10 +7518,40 @@ async function _reloadStored(){
   try{ await fetch(_B+'/api/reload',{method:'POST'}); setTimeout(_autoLoadStored,300); }catch(e){}
 }
 
+// Excel → CSV in the browser before uploading: the user's PC has far more memory
+// and CPU than the free server, and the server reads CSV cheaply line by line.
+// rawNumbers keeps dates as Excel serial numbers (no m/d vs d/m ambiguity);
+// the server's date parser understands them.
+const _SHEET_KEYS_JS=['RFAI','CIRCLE','SR_NO','SITE','BROAD','OA'];
+async function _excelToCsvFile(f){
+  if(typeof XLSX==='undefined') return f;                  // library not loaded → send as is
+  const buf=await f.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array',dense:true,cellText:false,cellDates:false,cellHTML:false,cellFormula:false});
+  let best=wb.SheetNames[0],bestSc=-1;
+  if(wb.SheetNames.length>1) wb.SheetNames.forEach(n=>{
+    const hdr=(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,range:0,blankrows:false})[0])||[];
+    const sc=hdr.filter(c=>c&&_SHEET_KEYS_JS.some(k=>String(c).toUpperCase().includes(k))).length;
+    if(sc>bestSc){bestSc=sc;best=n;}
+  });
+  const csv=XLSX.utils.sheet_to_csv(wb.Sheets[best],{rawNumbers:true,blankrows:false});
+  return new File([csv],f.name.replace(/\.(xlsx|xlsm|xlsb|xls)$/i,'')+'.csv',{type:'text/csv'});
+}
+
 async function _uploadToPython(files){
   const prog=document.getElementById('up-progress'),err=document.getElementById('up-error'),dz=document.getElementById('dropzone');
   if(prog)prog.style.display='block';if(err)err.style.display='none';
   if(dz){dz.style.pointerEvents='none';dz.style.opacity='0.5';}
+  const conv=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)){
+      _setProg(3+Math.round(i/files.length*7),'Preparing '+f.name+' in your browser…','');
+      await new Promise(r=>setTimeout(r,30));               // let the progress text paint
+      try{ conv.push(await _excelToCsvFile(f)); }
+      catch(e){ console.warn('[upload] browser conversion failed, sending original',e); conv.push(f); }
+    } else conv.push(f);
+  }
+  files=conv;
   _setProg(10,'Uploading '+files.length+' file(s)…','');
   try{
     const fd=new FormData();files.forEach(f=>fd.append('files',f));
