@@ -1544,6 +1544,37 @@ def filter_data(
     return {"html":html,"total":total,"page":page,"pages":pages,
             "start":s+1,"end":min(s+page_size,total),"months":show_months}
 
+@app.get("/api/home")
+def home_stats():
+    """Milestone journey + recent movement for the Home page."""
+    df=_df_full_cache
+    if df is None or not len(df): return {"total":0}
+    st=df['srStatus'].astype(str).to_numpy()
+    tot=len(df)
+    def cnt(x): return int((st==x).sum())
+    def dates(col):
+        if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
+        return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
+    today=pd.Timestamp(date.today()); wk=today-pd.Timedelta(days=7)
+    def last7(col):
+        d=dates(col); return int(((d>wk)&(d<=today)).sum())
+    pri_ever=int((df['priFirst'].astype(str).str.len()>0).sum()) if 'priFirst' in df.columns else 0
+    reoffer=int((df['rfaiReoffer'].astype(str).str.len()>0).sum()) if 'rfaiReoffer' in df.columns else 0
+    rej_ever=int((df['rfaiRej'].astype(str).str.len()>0).sum()) if 'rfaiRej' in df.columns else 0
+    delay=pd.to_numeric(df['delay'],errors='coerce').fillna(-1).to_numpy()
+    pend=np.isin(st,['OnAir Pending','Open PRI','RFAI Pending'])
+    return {
+        "total":tot,
+        "statuses":{k:cnt(k) for k in ('OnAir','OnAir Pending','Open PRI','Rejected RFAI','RFAI Pending')},
+        "rfai_rejected_ever":rej_ever, "rfai_reoffered":reoffer,
+        "pri_ever":pri_ever, "pri_open":cnt('Open PRI'),
+        "pending":int(pend.sum()), "pending_30":int((pend&(delay>30)).sum()),
+        "pending_90":int((pend&(delay>90)).sum()),
+        "last7":{"rfai":last7('rfaiNotice'),"final":last7('finalRfai'),
+                 "pri_closed":last7('priLast'),"onair":last7('onAir')},
+        "as_of":date.today().strftime('%d-%b-%Y'),
+    }
+
 @app.get("/api/sr")
 def sr_detail(sr:str=Query(default='')):
     """Everything known about one SR (for the detail panel)."""
