@@ -1574,6 +1574,29 @@ def home_stats(circle:str=Query(default='')):
         c=np.bincount(idx.to_numpy(),minlength=12)[:12] if len(idx) else np.zeros(12,int)
         return [int(x) for x in c]
     weekly={"labels":[w.strftime('%d %b') for w in weeks],"rfai":per_week(d_rfai),"onair":per_week(d_oa)}
+    # 12-week trends for the KPI sparklines: state as at the end of each week
+    d_rej=dates('rfaiRej'); d_pf=dates('priFirst')
+    isrej=(st=='Rejected RFAI')
+    dl_oa=pd.to_numeric(df['delay'],errors='coerce').to_numpy()
+    tr={k:[] for k in ('scope','accepted','onair_pct','pending','pending_30','pri_open','onair_week','avg_delay')}
+    for i,w in enumerate(weeks):
+        e=min(w+pd.Timedelta(days=6),today)
+        sc=(d_rfai<=e).to_numpy(); oa=(d_oa<=e).to_numpy()
+        rj=(isrej&(d_rej<=e).to_numpy())
+        pe=sc&~oa&~rj
+        p30=pe&(d_fin<=e-pd.Timedelta(days=30)).to_numpy()
+        po=(d_pf<=e).to_numpy()&~((d_pri<=e).to_numpy())&~oa
+        inwk=((d_oa>=w)&(d_oa<=e)).to_numpy()
+        n_sc=int(sc.sum())
+        tr['scope'].append(n_sc); tr['accepted'].append(int((sc&~rj).sum()))
+        tr['onair_pct'].append(round(float(oa.sum())/n_sc*100,1) if n_sc else 0)
+        tr['pending'].append(int(pe.sum())); tr['pending_30'].append(int(p30.sum()))
+        tr['pri_open'].append(int(po.sum())); tr['onair_week'].append(int(inwk.sum()))
+        v=dl_oa[inwk&(dl_oa>=0)]
+        tr['avg_delay'].append(int(round(v.mean())) if len(v) else None)
+    weekly['pending']=tr['pending']
+    rd=d_rfai.dropna()
+    date_range=[rd.min().strftime('%d %b %Y'),rd.max().strftime('%d %b %Y')] if len(rd) else None
     # circle scorecard
     g=pd.DataFrame({'c':df['circle'].astype(str).to_numpy(),'on':st=='OnAir','pe':pend,
                     'p30':pend&(delay>30),'pri':st=='Open PRI','rj':st=='Rejected RFAI',
@@ -1593,7 +1616,7 @@ def home_stats(circle:str=Query(default='')):
         "pending":int(pend.sum()), "pending_30":int((pend&(delay>30)).sum()),
         "pending_90":int((pend&(delay>90)).sum()),
         "last7":{"rfai":last7(d_rfai),"final":last7(d_fin),"pri_closed":last7(d_pri),"onair":last7(d_oa)},
-        "weekly":weekly,"circles":circles,
+        "weekly":weekly,"circles":circles,"trends":tr,"date_range":date_range,
         "as_of":date.today().strftime('%d-%b-%Y'),
     }
 

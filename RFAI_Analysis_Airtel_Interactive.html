@@ -751,6 +751,120 @@ html,body{overflow-x:hidden}
 #home-panel.cc .hm-empty{color:var(--cc-tx3)}
 @media(max-width:640px){.cc-wrap{padding:12px 12px 32px}.cc-right{margin-left:0;width:100%}.cc-search{flex:1}.cc-search input{width:100%}}
 
+/* ════════════ HOME — MILESTONE JOURNEY (mockup design) ════════════ */
+#home-panel.cc{background:radial-gradient(900px 420px at 0% 0%,rgba(255,30,60,.16),transparent 60%),radial-gradient(900px 500px at 100% 0%,rgba(124,58,237,.16),transparent 60%),radial-gradient(1200px 600px at 50% 100%,rgba(37,99,235,.10),transparent 60%),#070b1a}
+.mj-hdr{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:6px 2px 14px;border-bottom:1px solid rgba(255,255,255,.07)}
+.mj-brand{display:flex;align-items:center;gap:8px;padding-right:18px;border-right:1px solid rgba(255,255,255,.15)}
+.mj-brand img{height:38px;width:auto;background:#fff;border-radius:10px;padding:3px 6px;box-shadow:0 0 16px rgba(255,30,60,.35)}
+.mj-brand span{font-size:26px;font-weight:800;color:#ff2d3d;letter-spacing:-.02em}
+.mj-ttl{flex:1;min-width:260px}
+.mj-ttl h1{font-size:24px;font-weight:800;color:#fff;margin:0;letter-spacing:-.02em}
+.mj-ttl p{font-size:12.5px;color:#a3abc2;margin:3px 0 0}
+.mj-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mj-date{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:8px 14px;font-size:12.5px;color:#e6e9f2;background:rgba(255,255,255,.04)}
+.mj-date::before{content:'';width:14px;height:14px;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e6e9f2' stroke-width='2'%3E%3Crect x='3.5' y='5' width='17' height='15.5' rx='2'/%3E%3Cline x1='3.5' y1='10' x2='20.5' y2='10'/%3E%3Cline x1='8' y1='3' x2='8' y2='7'/%3E%3Cline x1='16' y1='3' x2='16' y2='7'/%3E%3C/svg%3E")}
+.mj-sel{appearance:none;-webkit-appearance:none;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:8px 30px 8px 14px;font:inherit;font-size:12.5px;font-weight:700;color:#e6e9f2;cursor:pointer;
+  background:rgba(255,255,255,.04) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23e6e9f2'/%3E%3C/svg%3E") no-repeat right 12px center}
+.mj-sel option{background:#121729}
+.mj-arrow{width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:#fff;font-size:20px;cursor:pointer;line-height:1}
+.mj-arrow:hover,.mj-sel:hover{background:rgba(255,255,255,.1)}
+.mj-sub{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 14px}
+.mj-sub .cc-chips{flex:1}
+.mj-search input{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;padding:8px 12px;font:inherit;font-size:12.5px;width:230px}
+.mj-search input::placeholder{color:#6f7894}
+.mj-export{background:linear-gradient(135deg,#ff2d3d,#c8102e);color:#fff;border:none;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 6px 18px rgba(255,45,61,.3)}
+/* KPI cards */
+.mj-kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px;margin-bottom:16px}
+@media(max-width:1300px){.mj-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:700px){.mj-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mj-k{position:relative;text-align:left;font:inherit;color:#fff;cursor:pointer;border-radius:14px;padding:14px 14px 10px;overflow:hidden;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--c) 24%,#0b1024) 0%,#0b1024 75%);border:1px solid color-mix(in srgb,var(--c) 55%,transparent);
+  box-shadow:0 0 22px color-mix(in srgb,var(--c) 22%,transparent),inset 0 1px 0 rgba(255,255,255,.06);transition:transform .15s,box-shadow .15s}
+.mj-k:hover{transform:translateY(-2px);box-shadow:0 0 32px color-mix(in srgb,var(--c) 40%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
+.mj-k .top{display:flex;align-items:center;gap:10px}
+.mj-k .ic{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--c) 70%,#fff),var(--c) 60%);box-shadow:0 0 14px color-mix(in srgb,var(--c) 60%,transparent)}
+.mj-k .ic svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.mj-k .l{font-size:13px;font-weight:700;line-height:1.2}
+.mj-k .v{font-size:24px;font-weight:800;margin:8px 0 2px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.mj-k .s{font-size:11.5px;color:#c4cadb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mj-k .bot{display:flex;align-items:flex-end;justify-content:space-between;gap:6px;margin-top:8px;min-height:30px}
+.mj-k .spark{width:58%;height:30px;overflow:visible}
+.mj-k .tag{font-size:11px;font-weight:700;padding:3px 10px;border-radius:14px;white-space:nowrap;
+  background:color-mix(in srgb,var(--c) 30%,transparent);border:1px solid color-mix(in srgb,var(--c) 60%,transparent);color:#fff}
+/* panels */
+.mj-panel{position:relative;background:linear-gradient(180deg,rgba(18,24,48,.85),rgba(10,14,30,.9));border:1px solid rgba(99,102,241,.28);border-radius:18px;padding:16px 18px;margin-bottom:16px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02) inset,0 10px 40px rgba(0,0,0,.35)}
+.mj-ph{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.mj-ph h2{font-size:18px;font-weight:800;color:#fff;margin:0}
+.mj-ph p{font-size:12.5px;color:#a3abc2;margin:2px 0 0}
+.mj-pic{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.04)}
+.mj-pic svg{width:20px;height:20px;fill:none;stroke:#e6e9f2;stroke-width:2;stroke-linecap:round}
+.mj-pic.red{border:none;background:none}.mj-pic.red svg{stroke:#ff2d3d;width:26px;height:26px;stroke-width:2.6}
+.mj-seg{margin-left:auto;display:flex;gap:4px;padding:4px;border-radius:24px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
+.mj-seg button{border:none;background:none;color:#a3abc2;font:inherit;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.mj-seg button i{width:10px;height:10px;border-radius:50%;background:#4b5372}
+.mj-seg button.on{background:linear-gradient(135deg,#1d3fa8,#2c58e0);color:#fff;box-shadow:0 0 14px rgba(59,130,246,.45)}
+.mj-seg button.on i{background:#fff;box-shadow:0 0 0 2px #4f8cff}
+/* journey */
+.cc-journey{height:470px}
+.mj-node{position:absolute;transform:translate(-50%,-50%);width:132px;height:132px;border:none;background:none;padding:0;cursor:pointer;color:#fff;font:inherit}
+.mj-node svg.r{width:132px;height:132px;overflow:visible;filter:drop-shadow(0 0 16px color-mix(in srgb,var(--c) 70%,transparent))}
+.mj-node:hover svg.r{filter:drop-shadow(0 0 26px var(--c))}
+.mj-node:focus-visible{outline:2px solid #fff;outline-offset:6px;border-radius:50%}
+.mj-node .in{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+.mj-node .in .gl{width:24px;height:24px;border-radius:50%;background:var(--c);display:flex;align-items:center;justify-content:center;margin-bottom:3px;box-shadow:0 0 10px var(--c)}
+.mj-node .in .gl svg{width:13px;height:13px;fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.mj-node .in b{font-size:23px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.mj-node .in span{font-size:12px;color:#d6dbea;margin-top:2px}
+.mj-node .stp{position:absolute;left:4px;top:2px;width:28px;height:28px;border-radius:50%;background:var(--c);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 3px #0b1024,0 0 12px var(--c)}
+.mj-lab{position:absolute;transform:translateX(-50%);text-align:center;width:240px;pointer-events:none}
+.mj-lab .t{font-size:16px;font-weight:800;color:#fff}
+.mj-lab .d{font-size:12.5px;color:#a3abc2;margin-top:1px}
+.mj-pill{display:inline-block;margin-top:7px;font-size:12px;font-weight:700;padding:4px 12px;border-radius:14px;border:1px solid color-mix(in srgb,var(--c) 70%,transparent);
+  background:color-mix(in srgb,var(--c) 18%,transparent);color:color-mix(in srgb,var(--c) 45%,#fff)}
+.mj-pill.n{border-color:rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:#c4cadb}
+.mj-co{position:absolute;transform:translate(-50%,-100%);padding:9px 14px;border-radius:12px;border:1px solid color-mix(in srgb,var(--c) 70%,transparent);
+  background:color-mix(in srgb,var(--c) 12%,#0b1024);box-shadow:0 0 18px color-mix(in srgb,var(--c) 30%,transparent);white-space:nowrap;pointer-events:none;max-width:300px}
+.mj-co{width:max-content}
+.mj-co .b{white-space:nowrap}
+.mj-co.r{transform:translate(-80%,-100%)}.mj-co.r::after{left:80%}
+.mj-co.l{transform:translate(-20%,-100%)}.mj-co.l::after{left:20%}
+.mj-co::after{content:'';position:absolute;left:50%;bottom:-7px;width:12px;height:12px;transform:translateX(-50%) rotate(45deg);
+  background:color-mix(in srgb,var(--c) 12%,#0b1024);border-right:1px solid color-mix(in srgb,var(--c) 70%,transparent);border-bottom:1px solid color-mix(in srgb,var(--c) 70%,transparent)}
+.mj-co .h{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800;color:#fff}
+.mj-co .h i{width:11px;height:11px;border-radius:50%;border:2px solid var(--c);background:color-mix(in srgb,var(--c) 40%,transparent)}
+.mj-co .b{font-size:12px;color:#d6dbea;margin-top:4px;padding-left:12px;border-left:2px solid color-mix(in srgb,var(--c) 70%,transparent)}
+.mj-co .b em{font-style:normal;color:#8b93ab;margin:0 6px}
+/* weekly */
+.mjw{position:relative;height:230px;display:flex;align-items:flex-end;gap:14px;padding:26px 6px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+.mjw .g{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0;cursor:default}
+.mjw .val{font-size:12px;font-weight:700;color:#e6e9f2;margin-bottom:5px;font-variant-numeric:tabular-nums}
+.mjw .bar{width:70%;max-width:56px;border-radius:7px 7px 0 0;background:linear-gradient(180deg,#5b8cff,#2a55d6);box-shadow:0 0 16px rgba(59,130,246,.35);min-height:3px}
+.mjw .g.last .bar{background:linear-gradient(180deg,#56c8ff,#2b7fff)}
+.mjw .g.pe .bar{background:linear-gradient(180deg,#c084fc,#7c3aed);box-shadow:0 0 16px rgba(168,85,247,.35)}
+.mjw .g:hover .bar{filter:brightness(1.2)}
+.mjw-x{display:flex;gap:14px;padding:6px 6px 0}.mjw-x span{flex:1;text-align:center;font-size:10.5px;color:#8b93ab;white-space:nowrap;overflow:hidden}
+.mjw-t{font-size:12px;color:#a3abc2;margin-top:10px}.mjw-t b{color:#fff}
+/* scorecard */
+.mjs{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.mjs th{font-size:12.5px;font-weight:700;color:#c4cadb;text-align:left;padding:10px 12px;background:rgba(255,255,255,.05)!important;border:none}
+.mjs thead th{border-bottom:none!important;box-shadow:none!important}
+.mjs th:first-child{border-radius:10px 0 0 10px}.mjs th:last-child{border-radius:0 10px 10px 0;text-align:right}
+.mjs td{padding:11px 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.06)}
+.mjs td:last-child{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.mjs tbody tr{cursor:pointer}
+.mjs .cn{display:flex;align-items:center;gap:10px;font-weight:700}
+.mjs .cn i{width:10px;height:10px;border-radius:50%;background:var(--h);box-shadow:0 0 8px var(--h)}
+.mjs .pb{display:flex;align-items:center;gap:10px}
+.mjs .pb .t{flex:1;height:9px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;min-width:60px}
+.mjs .pb .t span{display:block;height:100%;border-radius:6px}
+.mjs .pb b{font-weight:700;font-size:12.5px;min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.mj-half{margin-bottom:0}
+.cc-grid{margin-bottom:16px}
+@media(max-width:700px){.mj-sub .cc-chips{flex-basis:100%}.mj-sub .mj-search{flex:1}.mj-ttl h1{font-size:20px}.mj-brand span{font-size:20px}.mj-right{width:100%}.mj-search{flex:1}.mj-search input{width:100%}.mj-seg{margin-left:0}}
+
 /* ════════════ JOURNEY TABLE ════════════ */
 .twrap{max-height:calc(100vh - 250px)}
 tbody td{padding:5px 10px}
@@ -1078,42 +1192,51 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
   <!-- HOME PANEL — Rollout Command Center -->
   <div id="home-panel" class="cc" style="display:none">
     <div class="cc-wrap">
-    <section class="cc-hdr">
-      <div class="cc-logo"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></div>
-      <div class="cc-ttl">
-        <div class="cc-eyebrow">Rollout Command Center</div>
-        <div class="cc-title">RFAI → PRI → OnAir · tracking &amp; monitoring</div>
+    <header class="mj-hdr">
+      <div class="mj-brand"><img id="mj-logo" alt=""><span>Airtel</span></div>
+      <div class="mj-ttl"><h1>Milestone Journey</h1>
+        <p>How many SRs have reached each milestone. The ring shows the share of all SRs. Click a milestone to open those SRs.</p></div>
+      <div class="mj-right">
+        <span class="mj-date" id="mj-date" title="Range of RFAI notice dates in the data"></span>
+        <select id="cc-scope" class="mj-sel" onchange="ccSetScope(this.value)" aria-label="Circle scope"><option value="">All circles</option></select>
+        <button class="mj-arrow" onclick="ccStepScope(-1)" aria-label="Previous circle">‹</button>
+        <button class="mj-arrow" onclick="ccStepScope(1)" aria-label="Next circle">›</button>
       </div>
-      <label class="cc-scope" title="Scope the whole page to one circle">
-        <select id="cc-scope" onchange="ccSetScope(this.value)" aria-label="Circle scope"><option value="">Central view · all circles</option></select>
-      </label>
+    </header>
+    <div class="mj-sub">
       <div class="cc-chips" id="hm-fresh"></div>
-      <div class="cc-right">
-        <span class="cc-asof" id="cc-asof"></span>
-        <form class="cc-search" onsubmit="hmSearch(event)" role="search">
-          <input id="hm-q" type="search" placeholder="Find SR # or Site ID…" aria-label="Find an SR number or site ID" autocomplete="off">
-        </form>
-        <button class="cc-btn" onclick="exportCSV()">Export Excel</button>
+      <form class="mj-search" onsubmit="hmSearch(event)" role="search">
+        <input id="hm-q" type="search" placeholder="Find SR # or Site ID…" aria-label="Find an SR number or site ID" autocomplete="off">
+      </form>
+      <button class="mj-export" onclick="exportCSV()">Export Excel</button>
+    </div>
+    <section class="mj-kpis" id="mj-kpis" aria-label="Key numbers"></section>
+    <section class="mj-panel">
+      <div class="mj-ph">
+        <div class="mj-pic"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></div>
+        <div><h2>SRs Journey</h2><p>Milestone-wise distribution of SRs</p></div>
+        <div class="mj-seg" role="tablist" aria-label="Journey view">
+          <button id="mj-flow-on" class="on" onclick="mjSetFlow('on')"><i></i>OnAir Flow</button>
+          <button id="mj-flow-pe" onclick="mjSetFlow('pe')"><i></i>Pending Flow</button>
+        </div>
       </div>
-    </section>
-    <section class="cc-card">
-      <div class="cc-card-h">
-        <div><h2><i class="cc-bar"></i>Milestone journey</h2>
-          <div class="sub">How many SRs have reached each milestone. The ring shows the share of all SRs. Click a milestone to open those SRs.</div></div>
-        <div class="cc-nav"><button onclick="ccScroll(-1)" aria-label="Scroll left">‹</button><button onclick="ccScroll(1)" aria-label="Scroll right">›</button></div>
-      </div>
-      <div class="cc-ribbon" id="cc-ribbon" aria-label="Key numbers"></div>
       <div class="cc-jscroll" id="cc-jscroll"><div class="cc-journey" id="cc-journey"></div></div>
     </section>
     <div class="cc-grid">
-      <section class="cc-card">
-        <h2><i class="cc-bar"></i>Weekly momentum</h2>
-        <div class="sub">RFAI notices received vs SRs going OnAir, per week (last 12 weeks). Hover a bar for numbers.</div>
+      <section class="mj-panel mj-half">
+        <div class="mj-ph">
+          <div class="mj-pic red"><svg viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="18" y1="20" x2="18" y2="4"/></svg></div>
+          <div><h2>Weekly momentum</h2><p id="mj-wk-sub">SRs going OnAir per week · last 12 weeks</p></div>
+          <div class="mj-seg"><button id="mj-wk-on" class="on" onclick="mjSetWeekly('on')"><i></i>OnAir</button><button id="mj-wk-pe" onclick="mjSetWeekly('pe')"><i></i>Pending</button></div>
+        </div>
         <div id="cc-weekly"></div>
       </section>
-      <section class="cc-card">
-        <h2><i class="cc-bar"></i>Circle scorecard</h2>
-        <div class="sub">Health per circle: <b>Red</b> ≥50% of pending over 30 days · <b>Amber</b> ≥25%. Click a column to sort, a row to open its SRs.</div>
+      <section class="mj-panel mj-half">
+        <div class="mj-ph">
+          <div class="mj-pic red"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></div>
+          <div><h2>Circle scorecard</h2><p>Performance by circle · click a row to open its SRs</p></div>
+          <div class="mj-seg"><button id="mj-sc-on" class="on" onclick="mjSetScore('on')"><i></i>OnAir %</button><button id="mj-sc-pe" onclick="mjSetScore('pe')"><i></i>Pending %</button></div>
+        </div>
         <div id="cc-score"></div>
       </section>
     </div>
@@ -8129,34 +8252,56 @@ function _hmTip(e,html){
   const x=Math.min(e.clientX+14,window.innerWidth-t.offsetWidth-8), y=Math.min(e.clientY+14,window.innerHeight-t.offsetHeight-8);
   t.style.left=x+'px'; t.style.top=y+'px';
 }
+const MJ_IC={
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  check:'<polyline points="5 12.5 10 17 19 7"/>',
+  bolt:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+  shield:'<path d="M12 3 4.5 6v6c0 4.5 3.2 7.8 7.5 9 4.3-1.2 7.5-4.5 7.5-9V6z"/>',
+  cal:'<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/>',
+  bars:'<line x1="6" y1="20" x2="6" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="18" y1="20" x2="18" y2="4"/>',
+  doc:'<path d="M7 3h7l4 4v14H7z"/><line x1="10" y1="12" x2="15" y2="12"/><line x1="10" y1="16" x2="15" y2="16"/>',
+  hourglass:'<path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/>',
+  alert:'<path d="M12 3 2 20h20z"/><line x1="12" y1="9" x2="12" y2="14"/><line x1="12" y1="17" x2="12" y2="17.2"/>',
+};
+let _mjFlow='on', _mjWk='on', _mjSc='on';
 async function renderHome(){
   const info=window._hmInfo||{};
   const q=_ccCircle?('?circle='+encodeURIComponent(_ccCircle)):'';
   if(!_hmDash){ try{ _hmDash=await (await fetch(_B+'/api/dashboard'+q)).json(); }catch(e){ _hmDash=null; } }
   if(!_ccHome){ try{ _ccHome=await (await fetch(_B+'/api/home'+q)).json(); }catch(e){ _ccHome=null; } }
-  const scope=document.getElementById('cc-scope');
-  if(scope&&_ccHome&&_ccHome.circles_all&&scope.options.length<=1){
-    _ccHome.circles_all.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent='Circle: '+c;scope.appendChild(o);});
-  }
-  if(scope) scope.value=_ccCircle;
   const j=_hmDash||{}, h=_ccHome||{};
+  const lg=document.getElementById('mj-logo'), src=document.querySelector('.tbar .logo img');
+  if(lg&&src&&!lg.src) lg.src=src.src;
+  const scope=document.getElementById('cc-scope');
+  if(scope&&h.circles_all&&scope.options.length<=1)
+    h.circles_all.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent='Circle: '+c;scope.appendChild(o);});
+  if(scope) scope.value=_ccCircle;
+  const dt=document.getElementById('mj-date');
+  if(dt) dt.textContent=h.date_range?(h.date_range[0]+' – '+h.date_range[1]):(info.uploaded_at||'');
   const pend=h.pending||0, p30=h.pending_30||0, share=pend?Math.round(p30/pend*100):0;
   const hc=share>=50?['Red','#ef4444']:share>=25?['Amber','#f59e0b']:['Green','#2fbf71'];
   const files=(info.files||[]).join(', ');
   const fr=document.getElementById('hm-fresh');
-  if(fr) fr.innerHTML='<span class="cc-chip"><b>'+_hmN(h.total||info.total)+'</b> SRs in scope</span>'+
-    (h.total?'<span class="cc-chip health" style="--h:'+hc[1]+'" title="Red: half or more of pending SRs are over 30 days · Amber: a quarter or more"><i></i>Overall '+hc[0]+' · '+share+'% of pending over 30 days</span>':'')+
-    (files?'<span class="cc-chip">Source: <b>'+_hmEsc(files.length>32?files.slice(0,30)+'…':files)+'</b></span>':'');
-  const ao=document.getElementById('cc-asof');
-  if(ao) ao.innerHTML=info.uploaded_at?('Data as of <b>'+_hmEsc(info.uploaded_at)+'</b>'):(h.as_of?'As of <b>'+_hmEsc(h.as_of)+'</b>':'');
-  if(!j.total){
+  if(fr) fr.innerHTML=(h.total?'<span class="cc-chip health" style="--h:'+hc[1]+'" title="Red: half or more of pending SRs are over 30 days · Amber: a quarter or more"><i></i>Overall '+hc[0]+' · '+share+'% of pending over 30 days</span>':'')+
+    (files?'<span class="cc-chip">Source: <b>'+_hmEsc(files.length>32?files.slice(0,30)+'…':files)+'</b></span>':'')+
+    (info.uploaded_at?'<span class="cc-chip">Updated: <b>'+_hmEsc(info.uploaded_at)+'</b></span>':'');
+  if(!j.total||!h.total){
+    document.getElementById('mj-kpis').innerHTML='';
     document.getElementById('cc-journey').innerHTML='<div class="hm-empty">No data loaded yet.</div>';
     _hmRenderNav(j); return;
   }
-  _ccJourney(h,j); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
+  _mjKpis(h,j); _ccJourney(h,j); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
 }
-
 function ccSetScope(v){ _ccCircle=v||''; _hmDash=null; _ccHome=null; renderHome(); }
+function ccStepScope(d){
+  const list=['',...((_ccHome&&_ccHome.circles_all)||[])]; if(list.length<2) return;
+  const i=list.indexOf(_ccCircle); ccSetScope(list[(i+d+list.length)%list.length]);
+}
+function mjSeg(prefix,v){ ['on','pe'].forEach(k=>{const b=document.getElementById(prefix+k); if(b) b.classList.toggle('on',k===v);}); }
+function mjSetFlow(v){ _mjFlow=v; mjSeg('mj-flow-',v); _ccJourney(_ccHome||{},_hmDash||{}); }
+function mjSetWeekly(v){ _mjWk=v; mjSeg('mj-wk-',v); _ccWeekly(_ccHome||{}); }
+function mjSetScore(v){ _mjSc=v; mjSeg('mj-sc-',v); _ccScore(_ccHome||{}); }
 function ccCloseModal(){ document.getElementById('cc-modal').classList.remove('open'); document.getElementById('cc-modal-bg').style.display='none'; }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') ccCloseModal(); });
 function ccMilestone(i){
@@ -8180,18 +8325,109 @@ function ccMilestone(i){
   document.getElementById('cc-modal-bg').style.display='block';
   document.getElementById('cc-modal').classList.add('open');
 }
+function _mjSpark(arr,c){
+  const v=(arr||[]).map(x=>x==null?null:+x), pts=v.filter(x=>x!=null);
+  if(pts.length<2) return '<svg class="spark" viewBox="0 0 100 30"></svg>';
+  const mn=Math.min(...pts), mx=Math.max(...pts), rg=mx-mn||1;
+  const xy=v.map((x,i)=>x==null?null:[(i/(v.length-1))*100, 26-((x-mn)/rg)*22]).filter(Boolean);
+  const d=xy.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  return '<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">'+
+    '<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="5" stroke-opacity=".25" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>'+
+    '<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+function _mjKpis(h,j){
+  const el=document.getElementById('mj-kpis'); if(!el) return;
+  const s=h.statuses||{}, tot=h.total||0, tr=h.trends||{}, l7=h.last7||{}, rej=s['Rejected RFAI']||0;
+  const pend=h.pending||0, p30=h.pending_30||0, pct=v=>tot?Math.round(v/tot*100):0;
+  const avgOa=j.avgOaDelay!=null?j.avgOaDelay:j.avgDelay;
+  const K=[
+    {l:'SRs in scope',v:_hmN(tot),s:_hmN(s['OnAir'])+' OnAir – '+_hmN(pend)+' pending',c:'#ff2d55',ic:'target',tag:'Total SRs',t:tr.scope,go:"hmFilterTable({})"},
+    {l:'RFAI accepted',v:_hmN(tot-rej),s:pct(tot-rej)+'% · '+_hmN(rej)+' rejected',c:'#22c55e',ic:'check',tag:'Accepted',t:tr.accepted,go:"hmFilterTable({status:'Rejected RFAI'})"},
+    {l:'OnAir achieved',v:pct(s['OnAir']||0)+'%',s:_hmN(s['OnAir'])+' of '+_hmN(tot)+' SRs',c:'#a855f7',ic:'bolt',tag:'OnAir',t:tr.onair_pct,go:"hmFilterTable({status:'OnAir'})"},
+    {l:'Pending over 30 days',v:_hmN(p30),s:(pend?Math.round(p30/pend*100):0)+'% of '+_hmN(pend)+' pending',c:'#f97316',ic:'clock',tag:'Overdue',t:tr.pending_30,go:"switchTab('mgmt');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)"},
+    {l:'Open PRI',v:_hmN(s['Open PRI']),s:'blocking OnAir',c:'#3b82f6',ic:'shield',tag:'Blocking',t:tr.pri_open,go:"hmFilterTable({status:'Open PRI'})"},
+    {l:'OnAir in last 7 days',v:_hmN(l7.onair),s:_hmN(l7.final)+' Final RFAI · '+_hmN(l7.pri_closed)+' PRI closed',c:'#10b981',ic:'cal',tag:'Recent',t:tr.onair_week,go:"hmFilterTable({status:'OnAir'})"},
+    {l:'Avg RFAI – OnAir',v:avgOa!=null?avgOa+' d':'—',s:'Final RFAI to OnAir; PRI excl.',c:'#eab308',ic:'bars',tag:'Avg Time',t:tr.avg_delay,go:"switchTab('dash')"},
+  ];
+  el.innerHTML=K.map(k=>'<button class="mj-k" style="--c:'+k.c+'" onclick="'+k.go+'" title="'+k.l+': '+k.v+' — '+k.s+' (line: last 12 weeks)">'+
+    '<div class="top"><span class="ic"><svg viewBox="0 0 24 24">'+MJ_IC[k.ic]+'</svg></span><span class="l">'+k.l+'</span></div>'+
+    '<div class="v">'+k.v+'</div><div class="s">'+k.s+'</div>'+
+    '<div class="bot">'+_mjSpark(k.t,k.c)+'<span class="tag">'+k.tag+'</span></div></button>').join('');
+}
+function _ccJourney(h,j){
+  const el=document.getElementById('cc-journey'); if(!el||!h||!h.total) return;
+  j=j||{}; const avgOa=j.avgOaDelay!=null?j.avgOaDelay:j.avgDelay;
+  const s=h.statuses||{}, tot=h.total, l7=h.last7||{};
+  const rej=s['Rejected RFAI']||0, priOpen=s['Open PRI']||0, onair=s['OnAir']||0, oaPend=s['OnAir Pending']||0;
+  const accepted=tot-rej, priClear=Math.max(0,accepted-priOpen), sep='<em>·</em>';
+  const N=_mjFlow==='pe'?[
+    {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,c:'#ff2d55',ic:'doc',start:true,pill:'Total SRs',f:c=>c.total,go:"hmFilterTable({})",
+     co:{t:'Not yet OnAir',b:_hmN(h.pending)+' pending'+sep+(tot?Math.round(h.pending/tot*100):0)+'% of SRs'}},
+    {t:'Stuck at RFAI',d:'rejected, waiting re-offer',v:rej,c:'#ef4444',ic:'alert',f:c=>c.rejected,go:"hmFilterTable({status:'Rejected RFAI'})",
+     below:[h.rfai_reoffered?_hmN(h.rfai_reoffered)+' re-offered so far':'']},
+    {t:'Stuck at PRI',d:'Post-RFAI Issue still open',v:priOpen,c:'#3b82f6',ic:'shield',f:c=>c.pri_open,go:"hmFilterTable({status:'Open PRI'})",
+     co:{t:'Open PRI',b:_hmN(priOpen)+' blocking OnAir'+sep+_hmN(h.pri_ever)+' had PRI'}},
+    {t:'Waiting OnAir',d:'RFAI done, not yet on air',v:oaPend,c:'#f59e0b',ic:'hourglass',f:c=>Math.max(0,c.pending-c.pri_open),go:"hmFilterTable({status:'OnAir Pending'})",
+     below:[]},
+    {t:'Over 30 days',d:'pending since Final RFAI',v:h.pending_30||0,c:'#f97316',ic:'clock',f:c=>c.pending_30,go:"switchTab('mgmt');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)",
+     co:{t:'Overdue',b:_hmN(h.pending_30)+' over 30 d ('+Math.round((h.pending_30||0)/Math.max(1,h.pending)*100)+'%)'+sep+_hmN(h.pending_90)+' over 90 d'}},
+  ]:[
+    {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,c:'#ff2d55',ic:'doc',start:true,pill:'Total SRs',f:c=>c.total,go:"hmFilterTable({})",
+     co:{t:'SRs in scope',b:_hmN(onair)+' OnAir'+sep+_hmN(h.pending)+' pending'}},
+    {t:'RFAI notice',d:'first milestone',v:tot,c:'#22c55e',ic:'check',f:c=>c.total,go:"hmFilterTable({})",
+     below:[l7.rfai?'+'+_hmN(l7.rfai)+' in 7 d':'']},
+    {t:'RFAI accepted',d:'not rejected (or re-offered)',v:accepted,c:'#a855f7',ic:'bolt',f:c=>c.total-c.rejected,go:"hmFilterTable({status:'Rejected RFAI'})",
+     co:{t:'RFAI accepted',b:_hmN(rej)+' rejected'+sep+_hmN(h.rfai_reoffered)+' re-offered'}},
+    {t:'PRI clear',d:'no open Post-RFAI issue',v:priClear,c:'#3b82f6',ic:'shield',f:c=>Math.max(0,c.total-c.rejected-c.pri_open),go:"hmFilterTable({status:'Open PRI'})",
+     below:[(priOpen?_hmN(priOpen)+' PRI open · blocking OnAir':'no open PRI'), h.pri_ever?_hmN(h.pri_ever)+' had PRI':'']},
+    {t:'OnAir',d:'commercial traffic on air',v:onair,c:'#a855f7',ic:'clock',f:c=>c.onair,go:"hmFilterTable({status:'OnAir'})",
+     co:{t:'Avg RFAI – OnAir'+(avgOa!=null?' · '+avgOa+' d':''),b:_hmN(h.pending_30)+' over 30 d ('+Math.round((h.pending_30||0)/Math.max(1,h.pending)*100)+'%)'+sep+'+'+_hmN(l7.onair||0)+' in 7 d'}},
+  ];
+  _ccMs=N;
+  const n=N.length, H=470, X=i=>10+i*(80/(n-1)), YS=[215,330,150,330,215], Y=i=>YS[i];
+  let d='';
+  for(let i=0;i<n-1;i++){
+    const x0=X(i)*10,y0=Y(i),x1=X(i+1)*10,y1=Y(i+1),mx=(x0+x1)/2;
+    d+=(i?' ':'M'+x0+' '+y0)+' C'+mx+' '+y0+' '+mx+' '+y1+' '+x1+' '+y1;
+  }
+  const stops=N.map((m,i)=>'<stop offset="'+(i/(n-1)).toFixed(2)+'" stop-color="'+m.c+'"/>').join('');
+  let html='<svg class="path" viewBox="0 0 1000 '+H+'" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="mjg" x1="0" x2="1">'+stops+'</linearGradient></defs>'+
+    '<path d="'+d+'" fill="none" stroke="url(#mjg)" stroke-width="22" stroke-opacity=".18" vector-effect="non-scaling-stroke"/>'+
+    '<path d="'+d+'" fill="none" stroke="url(#mjg)" stroke-width="7" vector-effect="non-scaling-stroke" stroke-linecap="round"/>'+
+    '<path class="cc-flow" d="'+d+'" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>';
+  N.forEach((m,i)=>{
+    const pct=tot?Math.round(m.v/tot*100):0, R=56, C=2*Math.PI*R, dash=C*(m.start?100:pct)/100;
+    html+='<button class="mj-node" style="left:'+X(i)+'%;top:'+Y(i)+'px;--c:'+m.c+'" onclick="ccMilestone('+i+')" aria-label="'+m.t+': '+_hmN(m.v)+' SRs, '+pct+'%">'+
+      '<svg class="r" viewBox="0 0 132 132"><defs><radialGradient id="mjd'+i+'" cx=".5" cy=".4"><stop offset="0" stop-color="#1b2347"/><stop offset="1" stop-color="#0a0f22"/></radialGradient></defs>'+
+      '<circle cx="66" cy="66" r="'+R+'" fill="url(#mjd'+i+')" stroke="rgba(255,255,255,.08)" stroke-width="11"/>'+
+      (dash>0.5?'<circle cx="66" cy="66" r="'+R+'" fill="none" stroke="'+m.c+'" stroke-width="11" stroke-linecap="round" stroke-dasharray="'+dash.toFixed(1)+' '+C.toFixed(1)+'" transform="rotate(-90 66 66)"/>':'')+
+      '<circle cx="66" cy="66" r="'+(R+9)+'" fill="none" stroke="'+m.c+'" stroke-opacity=".25" stroke-width="1.5"/></svg>'+
+      '<span class="in"><span class="gl"><svg viewBox="0 0 24 24">'+MJ_IC[m.ic]+'</svg></span><b>'+_hmN(m.v)+'</b><span>'+(m.start?'SRs':pct+'%')+'</span></span>'+
+      (m.start?'':'<span class="stp">'+i+'</span>')+'</button>';
+    if(m.co){
+      html+='<div class="mj-co'+(X(i)>80?' r':X(i)<15?' l':'')+'" style="left:'+X(i)+'%;top:'+(Y(i)-82)+'px;--c:'+m.c+'"><div class="h"><i></i>'+m.co.t+'</div><div class="b">'+m.co.b+'</div></div>';
+    }
+    const top=Y(i)<250;
+    const pills=(m.pill?'<div><span class="mj-pill" style="--c:'+m.c+'">'+m.pill+'</span></div>':'')+
+      (m.below||[]).filter(Boolean).map((t,k)=>'<div><span class="mj-pill'+(k?' n':'')+'" style="--c:'+m.c+'">'+t+'</span></div>').join('');
+    if(top){ if(pills) html+='<div class="mj-lab" style="left:'+X(i)+'%;top:'+(Y(i)+74)+'px">'+pills+'</div>'; 
+             html+='<div class="mj-lab" style="left:'+X(i)+'%;top:'+(Y(i)+74+(pills?40:0))+'px"><div class="t">'+m.t+'</div><div class="d">'+m.d+'</div></div>'; }
+    else html+='<div class="mj-lab" style="left:'+X(i)+'%;top:'+(Y(i)+74)+'px"><div class="t">'+m.t+'</div><div class="d">'+m.d+'</div>'+pills+'</div>';
+  });
+  el.innerHTML=html;
+}
 function _ccWeekly(h){
   const el=document.getElementById('cc-weekly'); if(!el) return;
   const w=h.weekly; if(!w){el.innerHTML='<div class="hm-empty">No weekly data.</div>';return;}
-  const max=Math.max(1,...w.rfai,...w.onair), C1='#4f8cff', C2='#2fbf71';
-  const sum=a=>a.reduce((x,y)=>x+y,0);
-  el.innerHTML='<div class="hm-legend"><span><i style="background:'+C1+'"></i>RFAI received</span><span><i style="background:'+C2+'"></i>OnAir achieved</span></div>'+
-    '<div class="ccw">'+w.labels.map((l,i)=>{
-      const tip='<b>Week of '+_hmEsc(l)+'</b><br>RFAI received: '+_hmN(w.rfai[i])+'<br>OnAir achieved: '+_hmN(w.onair[i]);
-      return '<div class="ccw-g" data-tip="'+_hmEsc(tip)+'"><div class="ccw-bars"><span style="height:'+(w.rfai[i]/max*100)+'%;background:'+C1+'"></span><span style="height:'+(w.onair[i]/max*100)+'%;background:'+C2+'"></span></div></div>';
+  const pe=_mjWk==='pe', arr=pe?(w.pending||[]):w.onair, max=Math.max(1,...arr);
+  const sub=document.getElementById('mj-wk-sub');
+  if(sub) sub.textContent=pe?'SRs pending at the end of each week · last 12 weeks':'SRs going OnAir per week · last 12 weeks';
+  el.innerHTML='<div class="mjw">'+arr.map((v,i)=>{
+      const tip='<b>Week of '+_hmEsc(w.labels[i])+'</b><br>'+(pe?'Pending at week end: ':'Went OnAir: ')+_hmN(v)+(pe?'':'<br>RFAI received: '+_hmN(w.rfai[i]));
+      return '<div class="g'+(pe?' pe':'')+(i===arr.length-1?' last':'')+'" data-tip="'+_hmEsc(tip)+'"><span class="val">'+_hmN(v)+'</span><div class="bar" style="height:'+Math.max(1.5,v/max*100)+'%"></div></div>';
     }).join('')+'</div>'+
-    '<div class="ccw-lbl">'+w.labels.map((l,i)=>'<span>'+(i%2===0?_hmEsc(l):'')+'</span>').join('')+'</div>'+
-    '<div class="ccw-tot"><span>12 weeks: <b>'+_hmN(sum(w.rfai))+'</b> RFAI received</span><span><b>'+_hmN(sum(w.onair))+'</b> OnAir achieved</span></div>';
+    '<div class="mjw-x">'+w.labels.map(l=>'<span>'+_hmEsc(l)+'</span>').join('')+'</div>'+
+    '<div class="mjw-t">'+(pe?'Now pending: <b>'+_hmN(arr[arr.length-1])+'</b>':'12 weeks: <b>'+_hmN(arr.reduce((a,b)=>a+b,0))+'</b> SRs went OnAir · <b>'+_hmN(w.rfai.reduce((a,b)=>a+b,0))+'</b> RFAI received')+'</div>';
   el.querySelectorAll('[data-tip]').forEach(g=>{
     g.addEventListener('mousemove',e=>_hmTip(e,g.getAttribute('data-tip')));
     g.addEventListener('mouseleave',e=>_hmTip(e,null));
@@ -8199,96 +8435,20 @@ function _ccWeekly(h){
 }
 function _ccScore(h){
   const el=document.getElementById('cc-score'); if(!el) return;
-  const rows=(h.circles||[]).map(c=>Object.assign({},c,{oa_pct:c.total?Math.round(c.onair/c.total*100):0,
-    p30_share:c.pending?c.pending_30/c.pending:0}));
+  const rows=(h.circles||[]).map(c=>Object.assign({},c,{oa:c.total?c.onair/c.total*100:0,pe:c.total?c.pending/c.total*100:0,
+    p30s:c.pending?c.pending_30/c.pending:0}));
   if(!rows.length){el.innerHTML='<div class="hm-empty">No circle data.</div>';return;}
-  const k=_ccScoreSort.k, d=_ccScoreSort.d;
-  rows.sort((a,b)=>((a[k]??-1)>(b[k]??-1)?1:(a[k]??-1)<(b[k]??-1)?-1:0)*d);
-  const COLS=[['circle','Circle'],['total','SRs'],['oa_pct','OnAir %'],['pending','Pending'],['pending_30','>30 d'],['pri_open','Open PRI'],['avg_age','Avg age']];
-  el.innerHTML='<div class="ccs-wrap"><table class="ccs"><thead><tr>'+COLS.map(([key,lab])=>'<th data-k="'+key+'" class="'+(key===k?'on':'')+'">'+lab+(key===k?(d<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead><tbody>'+
+  rows.sort((a,b)=>_mjSc==='pe'?b.pe-a.pe:b.oa-a.oa);
+  el.innerHTML='<div class="ccs-wrap"><table class="mjs"><thead><tr><th>Circle</th><th>OnAir %</th><th>Pending %</th><th>Total SRs</th></tr></thead><tbody>'+
     rows.map(r=>{
-      const hc=r.p30_share>=.5?'#ef4444':r.p30_share>=.25?'#f59e0b':'#2fbf71', hl=r.p30_share>=.5?'Red':r.p30_share>=.25?'Amber':'Green';
-      return '<tr data-c="'+_hmEsc(r.circle)+'" title="'+hl+': '+Math.round(r.p30_share*100)+'% of pending over 30 days"><td><span class="rag" style="--h:'+hc+'"><i></i>'+_hmEsc(r.circle)+'</span></td>'+
-        '<td>'+_hmN(r.total)+'</td><td><span class="pc">'+r.oa_pct+'%</span></td><td>'+_hmN(r.pending)+'</td>'+
-        '<td style="color:'+(r.pending_30?'#fca5a5':'inherit')+'">'+_hmN(r.pending_30)+'</td><td>'+_hmN(r.pri_open)+'</td><td>'+(r.avg_age!=null?r.avg_age+' d':'—')+'</td></tr>';
+      const hc=r.p30s>=.5?'#ef4444':r.p30s>=.25?'#f59e0b':'#22c55e', hl=r.p30s>=.5?'Red':r.p30s>=.25?'Amber':'Green';
+      return '<tr data-c="'+_hmEsc(r.circle)+'" title="'+hl+': '+Math.round(r.p30s*100)+'% of pending over 30 days · '+_hmN(r.pending_30)+' over 30 d · '+_hmN(r.pri_open)+' open PRI">'+
+        '<td><span class="cn" style="--h:'+hc+'"><i></i>'+_hmEsc(r.circle)+'</span></td>'+
+        '<td><div class="pb"><div class="t"><span style="width:'+r.oa+'%;background:linear-gradient(90deg,#16a34a,#34d399)"></span></div><b>'+Math.round(r.oa)+'%</b></div></td>'+
+        '<td><div class="pb"><div class="t"><span style="width:'+r.pe+'%;background:linear-gradient(90deg,#7c3aed,#c084fc)"></span></div><b>'+Math.round(r.pe)+'%</b></div></td>'+
+        '<td>'+_hmN(r.total)+'</td></tr>';
     }).join('')+'</tbody></table></div>';
-  el.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
-    const key=th.dataset.k; _ccScoreSort={k:key,d:_ccScoreSort.k===key?-_ccScoreSort.d:(key==='circle'?1:-1)}; _ccScore(h);
-  });
   el.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>hmFilterTable({circle:tr.dataset.c}));
-}
-
-function ccScroll(d){ const el=document.getElementById('cc-jscroll'); if(el) el.scrollBy({left:d*400,behavior:'smooth'}); }
-function _ccRibbon(h,j){
-  const el=document.getElementById('cc-ribbon'); if(!el) return;
-  if(!h||!h.total){el.innerHTML='';return;}
-  const s=h.statuses||{}, tot=h.total, l7=h.last7||{}, rej=s['Rejected RFAI']||0, pend=h.pending||0, p30=h.pending_30||0;
-  const avgOa=j&&j.avgOaDelay!=null?j.avgOaDelay:(j?j.avgDelay:null), pct=v=>tot?Math.round(v/tot*100):0;
-  const R=[
-    {l:'SRs in scope',v:_hmN(tot),s:_hmN(s['OnAir'])+' OnAir · '+_hmN(pend)+' pending',c:'#ff2d3d',go:"hmFilterTable({})"},
-    {l:'RFAI accepted',v:_hmN(tot-rej),s:pct(tot-rej)+'% · '+_hmN(rej)+' rejected',c:'#2fbf71',go:"hmFilterTable({status:'Rejected RFAI'})"},
-    {l:'OnAir achieved',v:pct(s['OnAir']||0)+'%',s:_hmN(s['OnAir'])+' of '+_hmN(tot)+' SRs',c:'#a855f7',go:"hmFilterTable({status:'OnAir'})"},
-    {l:'Pending over 30 days',v:_hmN(p30),s:(pend?Math.round(p30/pend*100):0)+'% of '+_hmN(pend)+' pending',c:'#ef4444',go:"switchTab('mgmt');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)"},
-    {l:'Open PRI',v:_hmN(s['Open PRI']),s:'blocking OnAir',c:'#4f8cff',go:"hmFilterTable({status:'Open PRI'})"},
-    {l:'OnAir in last 7 days',v:_hmN(l7.onair),s:_hmN(l7.final)+' Final RFAI · '+_hmN(l7.pri_closed)+' PRI closed',c:'#2fbf71',go:"hmFilterTable({status:'OnAir'})"},
-    {l:'Avg RFAI → OnAir',v:avgOa!=null?avgOa+' d':'—',s:'Final RFAI to OnAir, PRI excl.',c:'#f59e0b',go:"switchTab('dash')"},
-  ];
-  el.innerHTML=R.map(r=>'<button class="cc-rb" style="--c:'+r.c+'" onclick="'+r.go+'" title="'+r.l+': '+r.v+' — '+r.s+'"><div class="l"><i></i>'+r.l+'</div><div class="v">'+r.v+'</div><div class="s">'+r.s+'</div></button>').join('');
-}
-function _ccJourney(h,j){
-  _ccRibbon(h,j);
-  j=j||{}; const avgOa=j.avgOaDelay!=null?j.avgOaDelay:j.avgDelay;
-  const el=document.getElementById('cc-journey'); if(!el||!h||!h.total) return;
-  const s=h.statuses||{}, tot=h.total, l7=h.last7||{};
-  const rej=s['Rejected RFAI']||0, priOpen=s['Open PRI']||0, onair=s['OnAir']||0;
-  const accepted=tot-rej, priClear=Math.max(0,accepted-priOpen);
-  const B=(cls,txt)=>'<span class="cc-badge '+cls+'">'+txt+'</span>';
-  const N=[
-    {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,start:true,c:'#ff2d3d',f:c=>c.total,
-     b:[B('g',_hmN(onair)+' OnAir'),B('a',_hmN(h.pending)+' pending')],go:"hmFilterTable({})"},
-    {t:'RFAI notice',d:'first milestone',v:tot,c:'#2fbf71',f:c=>c.total,
-     b:[l7.rfai?B('g','+'+_hmN(l7.rfai)+' in 7 d'):'' ],go:"hmFilterTable({})"},
-    {t:'RFAI accepted',d:'not rejected (or re-offered)',v:accepted,c:'#2fbf71',f:c=>c.total-c.rejected,
-     b:[rej?B('r',_hmN(rej)+' rejected'):'',h.rfai_reoffered?B('a',_hmN(h.rfai_reoffered)+' re-offered'):'',l7.final?B('g','+'+_hmN(l7.final)+' in 7 d'):''],go:"hmFilterTable({status:'Rejected RFAI'})"},
-    {t:'PRI clear',d:'no open Post-RFAI Issue',v:priClear,c:'#4f8cff',f:c=>Math.max(0,c.total-c.rejected-c.pri_open),
-     b:[priOpen?B('b',_hmN(priOpen)+' PRI open · blocking OnAir'):B('g','no open PRI'),h.pri_ever?B('n',_hmN(h.pri_ever)+' had PRI'):'',l7.pri_closed?B('g','+'+_hmN(l7.pri_closed)+' closed in 7 d'):''],go:"hmFilterTable({status:'Open PRI'})"},
-    {t:'OnAir',d:'commercial traffic on air',v:onair,c:'#a855f7',f:c=>c.onair,
-     b:[h.pending?B('a',_hmN(h.pending)+' pending'):'',
-        h.pending_30?B('r',_hmN(h.pending_30)+' over 30 d ('+Math.round(h.pending_30/Math.max(1,h.pending)*100)+'%)'):'',
-        B('g','+'+_hmN(l7.onair||0)+' in 7 d'),
-        avgOa!=null?B('n','avg '+avgOa+' d RFAI → OnAir'):''],go:"hmFilterTable({status:'OnAir'})"},
-  ];
-  const n=N.length, X=i=>9+i*(82/(n-1)), TOP=170, BOT=320, H=485;
-  const Y=i=>i%2===0?TOP:BOT;
-  // connecting path (viewBox in % of width x px height)
-  let d='';
-  for(let i=0;i<n-1;i++){
-    const x0=X(i)*10,y0=Y(i),x1=X(i+1)*10,y1=Y(i+1),mx=(x0+x1)/2;
-    d+=(i?' ':'M'+x0+' '+y0)+' C'+mx+' '+y0+' '+mx+' '+y1+' '+x1+' '+y1;
-  }
-  let html='<svg class="path" viewBox="0 0 1000 '+H+'" preserveAspectRatio="none" aria-hidden="true">'+
-    '<defs><linearGradient id="ccg" x1="0" x2="1"><stop offset="0" stop-color="#ff2d3d"/><stop offset=".35" stop-color="#2fbf71"/><stop offset=".7" stop-color="#4f8cff"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>'+
-    '<path d="'+d+'" fill="none" stroke="url(#ccg)" stroke-width="16" stroke-opacity=".22" vector-effect="non-scaling-stroke"/>'+
-    '<path d="'+d+'" fill="none" stroke="url(#ccg)" stroke-width="6" stroke-opacity=".85" vector-effect="non-scaling-stroke"/>'+
-    '<path class="cc-flow" d="'+d+'" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>';
-  _ccMs=N;
-  N.forEach((m,i)=>{
-    const pct=tot?Math.round(m.v/tot*100):0, R=46, C=2*Math.PI*R, dash=C*pct/100;
-    const ring=m.start
-      ? '<circle cx="55" cy="55" r="'+R+'" fill="url(#ccr'+i+')"/><defs><radialGradient id="ccr'+i+'" cx=".35" cy=".3"><stop offset="0" stop-color="#ff5a66"/><stop offset="1" stop-color="#9b0010"/></radialGradient></defs>'
-      : '<circle cx="55" cy="55" r="'+R+'" fill="#0d1222" stroke="rgba(255,255,255,.08)" stroke-width="9"/>'+
-        '<circle cx="55" cy="55" r="'+R+'" fill="none" stroke="'+m.c+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="'+dash.toFixed(1)+' '+C.toFixed(1)+'" transform="rotate(-90 55 55)"/>';
-    html+='<button class="cc-node" style="left:'+X(i)+'%;top:'+Y(i)+'px;--c:'+m.c+';--glow:'+m.c+'55" onclick="ccMilestone('+i+')" '+
-      'aria-label="'+m.t+': '+_hmN(m.v)+' SRs, '+pct+'%">'+
-      '<svg viewBox="0 0 110 110">'+ring+'</svg>'+
-      '<span class="num"><b>'+_hmN(m.v)+'</b><span>'+(m.start?'SRs':pct+'%')+'</span></span>'+
-      (m.start?'':'<span class="step">'+i+'</span>')+'</button>';
-    const top=Y(i)===TOP;
-    html+='<div class="cc-lab" style="left:'+X(i)+'%;'+(top?'bottom:'+(H-TOP+64)+'px':'top:'+(BOT+64)+'px')+'">'+
-      '<div class="t">'+m.t+'</div><div class="d">'+m.d+'</div>'+
-      '<div class="cc-badges">'+m.b.filter(Boolean).join('')+'</div></div>';
-  });
-  el.innerHTML=html;
 }
 function _hmPend30(ab){ab=ab||{};return (ab['30-60']||0)+(ab['60-90']||0)+(ab['>90']||0);}
 function _hmRenderKpis(j,h){
