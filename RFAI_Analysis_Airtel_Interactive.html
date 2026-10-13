@@ -645,7 +645,7 @@ html,body{overflow-x:hidden}
 .cc-nav button{width:34px;height:34px;border-radius:50%;border:1px solid var(--cc-line);background:rgba(255,255,255,.04);color:var(--cc-tx);font-size:18px;cursor:pointer}
 .cc-nav button:hover{background:rgba(255,255,255,.1)}
 .cc-jscroll{overflow-x:auto;scrollbar-width:thin;scroll-behavior:smooth}
-.cc-journey{position:relative;height:450px;min-width:1000px}
+.cc-journey{position:relative;height:500px;min-width:1000px}
 .cc-journey svg.path{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .cc-flow{stroke-dasharray:2 12;stroke-linecap:round;animation:ccflow 1.4s linear infinite}
 @keyframes ccflow{to{stroke-dashoffset:-28}}
@@ -1083,7 +1083,6 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
         <button class="cc-btn" onclick="exportCSV()">Export Excel</button>
       </div>
     </section>
-    <section class="cc-kpis" id="hm-kpis" aria-label="Key numbers"></section>
     <section class="cc-card">
       <div class="cc-card-h">
         <div><h2><i class="cc-bar"></i>Milestone journey</h2>
@@ -8137,11 +8136,10 @@ async function renderHome(){
   const ao=document.getElementById('cc-asof');
   if(ao) ao.innerHTML=info.uploaded_at?('Data as of <b>'+_hmEsc(info.uploaded_at)+'</b>'):(h.as_of?'As of <b>'+_hmEsc(h.as_of)+'</b>':'');
   if(!j.total){
-    document.getElementById('hm-kpis').innerHTML='<div class="hm-empty">No data loaded yet.</div>';
-    document.getElementById('cc-journey').innerHTML='';
+    document.getElementById('cc-journey').innerHTML='<div class="hm-empty">No data loaded yet.</div>';
     _hmRenderNav(j); return;
   }
-  _hmRenderKpis(j,h); _ccJourney(h); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
+  _ccJourney(h,j); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
 }
 
 function ccSetScope(v){ _ccCircle=v||''; _hmDash=null; _ccHome=null; renderHome(); }
@@ -8207,7 +8205,8 @@ function _ccScore(h){
 }
 
 function ccScroll(d){ const el=document.getElementById('cc-jscroll'); if(el) el.scrollBy({left:d*400,behavior:'smooth'}); }
-function _ccJourney(h){
+function _ccJourney(h,j){
+  j=j||{}; const avgOa=j.avgOaDelay!=null?j.avgOaDelay:j.avgDelay;
   const el=document.getElementById('cc-journey'); if(!el||!h||!h.total) return;
   const s=h.statuses||{}, tot=h.total, l7=h.last7||{};
   const rej=s['Rejected RFAI']||0, priOpen=s['Open PRI']||0, onair=s['OnAir']||0;
@@ -8215,17 +8214,20 @@ function _ccJourney(h){
   const B=(cls,txt)=>'<span class="cc-badge '+cls+'">'+txt+'</span>';
   const N=[
     {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,start:true,c:'#ff2d3d',f:c=>c.total,
-     b:[B('n',_hmN(h.pending)+' not yet OnAir')],go:"hmFilterTable({})"},
+     b:[B('g',_hmN(onair)+' OnAir'),B('a',_hmN(h.pending)+' pending')],go:"hmFilterTable({})"},
     {t:'RFAI notice',d:'first milestone',v:tot,c:'#2fbf71',f:c=>c.total,
      b:[l7.rfai?B('g','+'+_hmN(l7.rfai)+' in 7 d'):'' ],go:"hmFilterTable({})"},
     {t:'RFAI accepted',d:'not rejected (or re-offered)',v:accepted,c:'#2fbf71',f:c=>c.total-c.rejected,
      b:[rej?B('r',_hmN(rej)+' rejected'):'',h.rfai_reoffered?B('a',_hmN(h.rfai_reoffered)+' re-offered'):'',l7.final?B('g','+'+_hmN(l7.final)+' in 7 d'):''],go:"hmFilterTable({status:'Rejected RFAI'})"},
     {t:'PRI clear',d:'no open Post-RFAI Issue',v:priClear,c:'#4f8cff',f:c=>Math.max(0,c.total-c.rejected-c.pri_open),
-     b:[priOpen?B('b',_hmN(priOpen)+' PRI open'):'',h.pri_ever?B('n',_hmN(h.pri_ever)+' had PRI'):'',l7.pri_closed?B('g','+'+_hmN(l7.pri_closed)+' closed in 7 d'):''],go:"hmFilterTable({status:'Open PRI'})"},
+     b:[priOpen?B('b',_hmN(priOpen)+' PRI open · blocking OnAir'):B('g','no open PRI'),h.pri_ever?B('n',_hmN(h.pri_ever)+' had PRI'):'',l7.pri_closed?B('g','+'+_hmN(l7.pri_closed)+' closed in 7 d'):''],go:"hmFilterTable({status:'Open PRI'})"},
     {t:'OnAir',d:'commercial traffic on air',v:onair,c:'#a855f7',f:c=>c.onair,
-     b:[h.pending?B('a',_hmN(h.pending)+' pending'):'',h.pending_30?B('r',_hmN(h.pending_30)+' over 30 d'):'',l7.onair?B('g','+'+_hmN(l7.onair)+' in 7 d'):''],go:"hmFilterTable({status:'OnAir'})"},
+     b:[h.pending?B('a',_hmN(h.pending)+' pending'):'',
+        h.pending_30?B('r',_hmN(h.pending_30)+' over 30 d ('+Math.round(h.pending_30/Math.max(1,h.pending)*100)+'%)'):'',
+        B('g','+'+_hmN(l7.onair||0)+' in 7 d'),
+        avgOa!=null?B('n','avg '+avgOa+' d RFAI → OnAir'):''],go:"hmFilterTable({status:'OnAir'})"},
   ];
-  const n=N.length, X=i=>9+i*(82/(n-1)), TOP=150, BOT=300, H=450;
+  const n=N.length, X=i=>9+i*(82/(n-1)), TOP=185, BOT=335, H=500;
   const Y=i=>i%2===0?TOP:BOT;
   // connecting path (viewBox in % of width x px height)
   let d='';
