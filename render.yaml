@@ -9,7 +9,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
-      # Cloudflare R2 / Backblaze B2 / AWS S3 (any S3-compatible storage) — where bulk_convert.py uploads the data
+      # Supabase Storage / Cloudflare R2 / Backblaze B2 / AWS S3 (any S3-compatible storage) — where bulk_convert.py uploads the data
       - key: S3_ENDPOINT      # e.g. https://<account-id>.r2.cloudflarestorage.com
         sync: false
       - key: S3_BUCKET
@@ -17,6 +17,8 @@ services:
       - key: S3_ACCESS_KEY
         sync: false
       - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_REGION        # Supabase: the Region shown on its S3 settings page
         sync: false
       - key: APP_PASSWORD     # leave EMPTY = anyone with the link can view the dashboard
         sync: false

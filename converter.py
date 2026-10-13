@@ -566,6 +566,7 @@ def _s3():
                         region_name=_s3_region(),
                         config=__import__('botocore.config',fromlist=['Config']).Config(
                             request_checksum_calculation='when_required',
+                            s3={'addressing_style': 'path'},
                             response_checksum_validation='when_required'))
 
 def save_to_storage():

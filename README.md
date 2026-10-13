@@ -38,6 +38,16 @@ The free Render plan handles about **300,000 unique SRs**. Beyond that, switch `
 ```
 
 ### 1. Create the free storage (once). Pick one:
+**Supabase (easiest: sign in with GitHub, no card).**
+1. https://supabase.com → **Start your project** → **Continue with GitHub** → **New project**
+   (any name, any database password, pick the closest region) → wait ~2 min.
+2. **Storage** (left menu) → **New bucket** → name `rfai-data` (leave *Public* OFF) → Save.
+3. **Project Settings → Storage → S3 Connection**: copy **Endpoint** and **Region**.
+   Under **S3 Access Keys** → **New access key** → copy **Access key ID** and **Secret access key**.
+4. Set `S3_ENDPOINT`=Endpoint, `S3_REGION`=Region, `S3_BUCKET`=`rfai-data`,
+   `S3_ACCESS_KEY`/`S3_SECRET_KEY`=the keys. Free tier: 1 GB. Free projects pause after
+   7 days with no use; click **Restore** in Supabase if that happens.
+
 **Cloudflare R2.** Cloudflare may ask for a card to enable R2, but there is no charge
 under 10 GB.
 1. https://dash.cloudflare.com → **R2** → **Create bucket**, e.g. `rfai-data`.

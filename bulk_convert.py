@@ -150,6 +150,7 @@ def upload(path):
                       region_name=_s3_region(),
                         config=__import__('botocore.config',fromlist=['Config']).Config(
                             request_checksum_calculation='when_required',
+                            s3={'addressing_style': 'path'},
                             response_checksum_validation='when_required'))
     key = prefix + DEDUP_NAME
     print(f'  Uploading {Path(path).stat().st_size/1e6:,.1f} MB -> s3://{bucket}/{key}')
