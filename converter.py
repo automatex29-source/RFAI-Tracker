@@ -284,6 +284,12 @@ def _norm_cell(v):
 
 def _mem_limit_bytes():
     """Memory this process may use: container limit (Render) or free RAM."""
+    if os.environ.get('MEMORY_LIMIT_MB'):
+        return int(os.environ['MEMORY_LIMIT_MB']) << 20
+    if os.environ.get('RENDER'):
+        # Render shows the HOST's memory in /proc and cgroups, not the plan's limit;
+        # assume the free plan (512 MB) so big files use the low-memory reader.
+        return 512 << 20
     for f in ('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'):
         try:
             v = open(f).read().strip()
@@ -762,7 +768,7 @@ def save_to_storage():
 _loaded_sig = {}
 _RAW_EXTS = ('.xlsx', '.xlsm', '.xls', '.xlsb', '.ods', '.csv')
 
-def load_stored_data(retries=1):
+def load_stored_data(retries=1, force=False):
     """Load data from the bucket:
     • Excel/CSV files you put in the bucket yourself (e.g. via the Supabase
       dashboard) are converted when they are newer than the last conversion;
@@ -772,7 +778,7 @@ def load_stored_data(retries=1):
     for attempt in range(retries):
         _job.reset(); _job.running = True
         try:
-            _load_once()
+            _load_once(force)
             return
         except Exception as e:
             log.error(f"  Storage load failed (attempt {attempt+1}/{retries}): {_s3_err(e)}")
@@ -784,7 +790,7 @@ def load_stored_data(retries=1):
             log.info('  ' + _job.message)
         if attempt + 1 < retries: time.sleep(15)   # storage may still be waking up
 
-def _load_once():
+def _load_once(force=False):
     global _df_cache, _df_full_cache, _dash_cache
     _cache_dir.mkdir(parents=True, exist_ok=True)
     if S3_BUCKET:
@@ -809,7 +815,7 @@ def _load_once():
                 prev = json.loads(s3.get_object(Bucket=S3_BUCKET, Key=marker)['Body'].read())
             except Exception:
                 prev = None
-            if prev and prev.get('files') == raw_sig and prev.get('attempts', 0) >= 2:
+            if prev and prev.get('files') == raw_sig and prev.get('attempts', 0) >= 2 and not force:
                 _storage_status['last_load'] += ' — conversion skipped (crashed twice)'
                 raise RuntimeError('Converting ' + ', '.join(o['Key'] for o in raw_objs) +
                                    ' crashed the server twice (file too big for the free server). '
@@ -1106,7 +1112,8 @@ def _startup_load():
 @app.post("/api/reload")
 def reload_data():
     if _job.running: return JSONResponse({"error":"Busy"},status_code=409)
-    threading.Thread(target=load_stored_data, daemon=True).start()
+    # a manual Reload gives a previously crashed conversion one more try
+    threading.Thread(target=load_stored_data, kwargs={'force': True}, daemon=True).start()
     return {"ok":True}
 
 @app.middleware("http")
