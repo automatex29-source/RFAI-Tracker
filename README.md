@@ -80,6 +80,11 @@ BULK_CONVERT.bat  D:\RFAI_raw_files
 Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render service's
 **Environment** tab.
 
+**Updating data without the website:** upload your Excel/CSV straight into the bucket
+(e.g. Supabase → Storage → rfai-data → **Upload files**), then click **↻ Reload stored data**
+on the site. Files newer than the last conversion are converted automatically. Files over
+the storage's own upload limit (Supabase free: 50 MB) need the website upload or `BULK_CONVERT.bat`.
+
 **Who can see it:**
 - By default **anyone with the link can view** the dashboard.
 - To require a login for viewers, add a `VIEW_PASSWORD` variable (any username, that password).

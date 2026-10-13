@@ -683,46 +683,81 @@ def save_to_storage():
         _job.message = f'Loaded, but saving to storage FAILED: {_s3_err(e)}'
         _storage_status['last_save'] = f'FAILED: {_s3_err(e)}'
 
-def load_stored_data():
-    """Pull parquet from the bucket (if configured), then build caches from disk."""
+_RAW_EXTS = ('.xlsx', '.xlsm', '.xls', '.xlsb', '.ods', '.csv')
+
+def load_stored_data(retries=1):
+    """Load data from the bucket:
+    • Excel/CSV files you put in the bucket yourself (e.g. via the Supabase
+      dashboard) are converted when they are newer than the last conversion;
+    • otherwise the converted parquet under S3_PREFIX is loaded (fast)."""
     global _df_cache, _df_full_cache, _dash_cache
     if _job.running: return
-    _job.reset(); _job.running = True
-    try:
-        _cache_dir.mkdir(parents=True, exist_ok=True)
-        if S3_BUCKET:
-            _job.message = 'Downloading data from storage…'
-            s3 = _s3(); keys = []
-            for page in s3.get_paginator('list_objects_v2').paginate(Bucket=S3_BUCKET, Prefix=S3_PREFIX):
-                keys += [o['Key'] for o in page.get('Contents', []) if o['Key'].endswith('.parquet')]
-            if keys:
-                for f in _cache_dir.glob('*.parquet'): f.unlink()
-                for k in keys:
-                    dst = _cache_dir / Path(k).name
-                    log.info(f"  Downloading s3://{S3_BUCKET}/{k}")
-                    s3.download_file(S3_BUCKET, k, str(dst) + '.part')
-                    os.replace(str(dst) + '.part', dst)
-            else:
-                log.info(f"  No parquet under s3://{S3_BUCKET}/{S3_PREFIX} yet")
-            _storage_status['last_load'] = f'{len(keys)} file(s) found in storage'
-        if any(_cache_dir.glob('*.parquet')):
-            _job.message = 'Loading data…'
-            _df_cache = _df_full_cache = _dash_cache = None; gc.collect()
-            _build_caches()
-            n = len(_df_cache) if _df_cache is not None else 0
-            _job.rows_processed = _job.rows_kept = n
-            _job.message = f'✓ Loaded {n:,} SRs from storage'
+    for attempt in range(retries):
+        _job.reset(); _job.running = True
+        try:
+            _load_once()
+            return
+        except Exception as e:
+            log.error(f"  Storage load failed (attempt {attempt+1}/{retries}): {_s3_err(e)}")
+            import traceback; traceback.print_exc()
+            _job.error = _s3_err(e); _job.message = 'Storage load failed: ' + _s3_err(e)
+            _storage_status['last_load'] = f'FAILED: {_s3_err(e)}'
+        finally:
+            _job.progress = 100; _job.running = False
+            log.info('  ' + _job.message)
+        if attempt + 1 < retries: time.sleep(15)   # storage may still be waking up
+
+def _load_once():
+    global _df_cache, _df_full_cache, _dash_cache
+    _cache_dir.mkdir(parents=True, exist_ok=True)
+    if S3_BUCKET:
+        _job.message = 'Checking storage…'
+        s3 = _s3(); objs = []
+        for page in s3.get_paginator('list_objects_v2').paginate(Bucket=S3_BUCKET):
+            objs += page.get('Contents', [])
+        pq_objs  = [o for o in objs if o['Key'].startswith(S3_PREFIX) and o['Key'].endswith('.parquet')]
+        raw_objs = [o for o in objs if not o['Key'].startswith(S3_PREFIX)
+                    and o['Key'].lower().endswith(_RAW_EXTS)
+                    and not o['Key'].rsplit('/', 1)[-1].startswith(('~$', '.'))]
+        newest_pq  = max((o['LastModified'] for o in pq_objs), default=None)
+        newest_raw = max((o['LastModified'] for o in raw_objs), default=None)
+        _storage_status['last_load'] = (f'{len(pq_objs)} converted file(s), '
+                                        f'{len(raw_objs)} Excel/CSV file(s) in storage')
+        if raw_objs and (newest_pq is None or newest_raw > newest_pq):
+            # Excel/CSV uploaded straight into the bucket → convert them now
+            up_dir = _cache_dir / '_uploads'; up_dir.mkdir(parents=True, exist_ok=True)
+            infos = []
+            for o in raw_objs:
+                name = o['Key'].rsplit('/', 1)[-1]
+                dst = up_dir / f"{len(infos):03d}_{name}"
+                _job.message = f'Downloading {name} from storage…'
+                log.info(f"  Downloading s3://{S3_BUCKET}/{o['Key']}")
+                s3.download_file(S3_BUCKET, o['Key'], str(dst))
+                infos.append((name, str(dst)))
+            _job.total_files = len(infos)
+            _process_files(infos)          # converts, builds caches, saves parquet back
+            if _job.error: raise RuntimeError(_job.error)
+            return
+        if pq_objs:
+            for f in _cache_dir.glob('*.parquet'): f.unlink()
+            for o in pq_objs:
+                k = o['Key']; dst = _cache_dir / Path(k).name
+                _job.message = 'Downloading data from storage…'
+                log.info(f"  Downloading s3://{S3_BUCKET}/{k}")
+                s3.download_file(S3_BUCKET, k, str(dst) + '.part')
+                os.replace(str(dst) + '.part', dst)
         else:
-            _job.message = 'No stored data yet'
-        _job.done = True
-    except Exception as e:
-        log.error(f"  Storage load failed: {e}")
-        import traceback; traceback.print_exc()
-        _job.error = str(e); _job.message = 'Storage load failed: ' + str(e)
-        _storage_status['last_load'] = f'FAILED: {_s3_err(e)}'
-    finally:
-        _job.progress = 100; _job.running = False
-        log.info('  ' + _job.message)
+            log.info(f"  No data in s3://{S3_BUCKET} yet")
+    if any(_cache_dir.glob('*.parquet')):
+        _job.message = 'Loading data…'
+        _df_cache = _df_full_cache = _dash_cache = None; gc.collect()
+        _build_caches()
+        n = len(_df_cache) if _df_cache is not None else 0
+        _job.rows_processed = _job.rows_kept = n
+        _job.message = f'✓ Loaded {n:,} SRs from storage'
+    else:
+        _job.message = 'No stored data yet'
+    _job.done = True
 
 # ── Dashboard aggregation ──────────────────────────────────────────────────
 def _compute_dash_aggs(df):
@@ -963,7 +998,7 @@ async def _auth(request:Request,call_next):
 
 @app.on_event("startup")
 def _startup_load():
-    threading.Thread(target=load_stored_data, daemon=True).start()
+    threading.Thread(target=load_stored_data, kwargs={'retries': 3}, daemon=True).start()
 
 @app.post("/api/reload")
 def reload_data():
