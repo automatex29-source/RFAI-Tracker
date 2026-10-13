@@ -856,8 +856,9 @@ async def _auth(request:Request,call_next):
     path = request.url.path
     if path in _ADMIN_PATHS and (ADMIN_PASSWORD or _ON_SERVER):
         if not ADMIN_PASSWORD:
-            return JSONResponse({"error":"Uploading is disabled on this public site. "
-                                 "Update data with BULK_CONVERT.bat instead."}, status_code=403)
+            return JSONResponse({"error":"Upload is locked: ADMIN_PASSWORD is not set on the server. "
+                                 "In Render open rfai-tracker → Environment, add ADMIN_PASSWORD, "
+                                 "then click 'Save, rebuild, and deploy'."}, status_code=403)
         if not _pw_ok(_basic_pw(request), ADMIN_PASSWORD):
             return Response('Admin login required', status_code=401,
                             headers={'WWW-Authenticate': 'Basic realm="RFAI admin"'})
@@ -900,6 +901,14 @@ def progress():
 
 @app.get("/api/ping")
 def ping(): return {"ok":True}
+
+@app.get("/api/config")
+def config():
+    """Non-secret setup status, shown on the start screen."""
+    env_names = sorted(k for k in os.environ if 'PASS' in k.upper())
+    return {"upload_enabled": bool(ADMIN_PASSWORD) or not _ON_SERVER,
+            "storage_configured": bool(S3_BUCKET),
+            "password_like_vars": env_names}
 
 @app.get("/api/summary")
 def summary():

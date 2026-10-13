@@ -7482,6 +7482,12 @@ async function _checkServer(){
     if(dot)dot.style.background='#10b981';
     if(txt){txt.style.color='#065f46';txt.textContent='✓ Python server ready — drop your files above';}
     if(badge){badge.style.background='#f0fdf4';badge.style.borderColor='#86efac';}
+    try{const c=await (await fetch(_B+'/api/config')).json();
+      const notes=[];
+      if(!c.storage_configured) notes.push('⚠ Storage not set (S3_* settings missing) — data will not be saved');
+      if(!c.upload_enabled) notes.push('🔒 Upload locked — ADMIN_PASSWORD not set on server');
+      if(notes.length&&txt) txt.textContent+=' · '+notes.join(' · ');
+    }catch(_){}
     _autoLoadStored();
   }catch(e){
     if(dot)dot.style.background='#ef4444';
