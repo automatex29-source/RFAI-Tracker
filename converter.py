@@ -501,6 +501,7 @@ def process_files_bg(file_infos):
     log.info(f"  Total scanned: {grand:,} | With RFAI date: {kept:,} | "
              f"Dropped (no RFAI): {grand-kept:,} | Blank SR#: {_job.rows_no_sr:,}")
     _build_caches()
+    if S3_BUCKET: save_to_storage()
 
 # ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
 def _build_caches():
@@ -566,6 +567,29 @@ def _s3():
                         config=__import__('botocore.config',fromlist=['Config']).Config(
                             request_checksum_calculation='when_required',
                             response_checksum_validation='when_required'))
+
+def save_to_storage():
+    """After a browser upload: store the deduplicated data in the bucket so it
+    survives restarts (Render free plan restarts after 15 min idle)."""
+    if _df_full_cache is None: return
+    try:
+        _job.message = 'Saving to cloud storage…'
+        out = _cache_dir / 'rfai_dedup.parquet.save'
+        df = _df_full_cache.copy()
+        for c in df.columns:
+            if c in ('delay', 'priDays'): df[c] = df[c].astype('int16')
+            else: df[c] = df[c].astype(str).replace({'nan': ''})
+        pq.write_table(pa.Table.from_pandas(df[[c for c in OUT if c in df.columns]],
+                                            preserve_index=False),
+                       str(out), compression='zstd')
+        del df
+        _s3().upload_file(str(out), S3_BUCKET, S3_PREFIX + 'rfai_dedup.parquet')
+        out.unlink()
+        _job.message += ' ✓ saved'
+        log.info(f"  Saved to s3://{S3_BUCKET}/{S3_PREFIX}rfai_dedup.parquet")
+    except Exception as e:
+        log.error(f"  Save to storage failed: {e}")
+        _job.message = f'Loaded, but saving to storage failed: {e}'
 
 def load_stored_data():
     """Pull parquet from the bucket (if configured), then build caches from disk."""
