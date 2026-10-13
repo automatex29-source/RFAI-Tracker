@@ -9,8 +9,8 @@ for /f "tokens=5" %%a in ('netstat -aon ^| find ":8765" ^| find "LISTENING"') do
 )
 timeout /t 1 /nobreak >nul
 echo  Installing libraries (first time only)...
-pip install pandas pyarrow openpyxl python-calamine fastapi uvicorn "python-multipart" -q --disable-pip-version-check 2>nul
-if errorlevel 1 pip install pandas pyarrow openpyxl python-calamine fastapi uvicorn "python-multipart" -q
+pip install pandas pyarrow openpyxl python-calamine lxml fastapi uvicorn "python-multipart" -q --disable-pip-version-check 2>nul
+if errorlevel 1 pip install pandas pyarrow openpyxl python-calamine lxml fastapi uvicorn "python-multipart" -q
 echo  Ready.
 echo.
 echo  Starting server at http://localhost:8765

@@ -7505,14 +7505,17 @@ async function _autoLoadStored(){
   const txt=document.getElementById('srv-txt');
   try{
     const p=await (await fetch(_B+'/api/progress')).json();
-    if(p.running){ if(txt)txt.textContent='⏳ '+(p.message||'Loading stored data…'); setTimeout(_autoLoadStored,2000); return; }
+    if(p.running){ if(txt)txt.textContent='⏳ '+(p.message||'Loading stored data…'); setTimeout(_autoLoadStored,700); return; }
+    if(p.error&&txt){ txt.textContent='⚠ '+p.error; txt.style.color='#991b1b'; }
+    else if(p.message&&txt&&/up to date|Loaded/.test(p.message)) txt.textContent=p.message;
     const r=await fetch(_B+'/api/summary'); if(!r.ok) return;
     const j=await r.json();
     if(!j.error&&j.total){ if(txt)txt.textContent='✓ Stored data loaded — '+j.total.toLocaleString()+' SRs (drop files to replace)'; _loadDashboard(); }
   }catch(e){}
 }
 async function _reloadStored(){
-  try{ await fetch(_B+'/api/reload',{method:'POST'}); setTimeout(_autoLoadStored,1000); }catch(e){}
+  const txt=document.getElementById('srv-txt'); if(txt) txt.textContent='⏳ Checking storage…';
+  try{ await fetch(_B+'/api/reload',{method:'POST'}); setTimeout(_autoLoadStored,300); }catch(e){}
 }
 
 async function _uploadToPython(files){

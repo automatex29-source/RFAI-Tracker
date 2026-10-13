@@ -282,14 +282,90 @@ def _norm_cell(v):
     if isinstance(v, float) and v.is_integer(): return int(v)
     return None if v == '' else v
 
+def _mem_limit_bytes():
+    """Memory this process may use: container limit (Render) or free RAM."""
+    for f in ('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'):
+        try:
+            v = open(f).read().strip()
+            if v.isdigit() and int(v) < 1 << 50: return int(v)
+        except Exception: pass
+    try:
+        for line in open('/proc/meminfo'):
+            if line.startswith('MemAvailable:'): return int(line.split()[1]) * 1024
+    except Exception: pass
+    return 8 << 30   # Windows PC etc.: assume plenty
+
+def _xlsx_stream(path):
+    """Low-memory .xlsx reader (lxml iterparse): ~20 MB RAM for any file size.
+    Dates come out as Excel serial numbers, which the date parser understands."""
+    import zipfile
+    from lxml import etree
+    NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    z = zipfile.ZipFile(str(path))
+    names = z.namelist()
+    ss = []
+    if 'xl/sharedStrings.xml' in names:
+        for _, el in etree.iterparse(z.open('xl/sharedStrings.xml'), tag=NS + 'si'):
+            ss.append(''.join(t.text or '' for t in el.iter(NS + 't'))); el.clear()
+
+    def col_idx(ref):
+        n = 0
+        for ch in ref:
+            if 'A' <= ch <= 'Z': n = n * 26 + ord(ch) - 64
+            else: break
+        return n - 1
+
+    def rows(member):
+        for _, row in etree.iterparse(z.open(member), tag=NS + 'row'):
+            out = []
+            for c in row.iterchildren(NS + 'c'):
+                ref = c.get('r'); i = col_idx(ref) if ref else len(out)
+                while len(out) < i: out.append(None)
+                t = c.get('t'); v = c.find(NS + 'v')
+                if t == 's': val = ss[int(v.text)] if v is not None and v.text else None
+                elif t == 'inlineStr': val = ''.join(x.text or '' for x in c.iter(NS + 't'))
+                elif v is None or v.text is None: val = None
+                elif t in ('str', 'e'): val = v.text
+                elif t == 'b': val = v.text == '1'
+                else:
+                    x = v.text
+                    try: f = float(x); val = int(f) if f.is_integer() else f
+                    except ValueError: val = x
+                out.append(val)
+            row.clear()
+            while row.getprevious() is not None: del row.getparent()[0]
+            yield tuple(out)
+
+    sheets = sorted((n for n in names if n.startswith('xl/worksheets/sheet') and n.endswith('.xml')),
+                    key=lambda n: int(re.sub(r'\D', '', n) or 0))
+    best, best_sc = sheets[0], -1
+    if len(sheets) > 1:
+        for sh in sheets:
+            hdr = next(rows(sh), ())
+            sc = sum(1 for c in hdr if c and any(k in str(c).upper() for k in _SHEET_KEYS))
+            if sc > best_sc: best, best_sc = sh, sc
+    yield from rows(best)
+
 def iter_excel_rows(path):
     """Yield rows (tuples) of the best-matching sheet, header row first.
-    Uses calamine (Rust, ~10x faster than openpyxl, also reads .xls/.xlsb/.ods);
-    falls back to openpyxl if calamine is unavailable."""
+    • calamine (Rust, fastest) when the file fits comfortably in memory
+      (it needs ~16x the .xlsx size in RAM);
+    • streaming lxml reader for big .xlsx on small servers (Render free 512 MB);
+    • openpyxl as last resort."""
+    size = os.path.getsize(path)
+    ext = Path(str(path)).suffix.lower()
+    fits = size * 16 < _mem_limit_bytes() * 0.5
     try:
         from python_calamine import CalamineWorkbook
     except ImportError:
         CalamineWorkbook = None
+    if ext in ('.xlsx', '.xlsm') and not fits:
+        try:
+            import lxml  # noqa: F401
+            log.info(f"  Large file ({size/2**20:.0f} MB) — using low-memory reader")
+            yield from _xlsx_stream(path); return
+        except ImportError:
+            CalamineWorkbook = None   # fall through to openpyxl streaming
     if CalamineWorkbook is not None:
         wb = CalamineWorkbook.from_path(str(path))
         best, best_sc = 0, -1
@@ -683,6 +759,7 @@ def save_to_storage():
         _job.message = f'Loaded, but saving to storage FAILED: {_s3_err(e)}'
         _storage_status['last_save'] = f'FAILED: {_s3_err(e)}'
 
+_loaded_sig = {}
 _RAW_EXTS = ('.xlsx', '.xlsm', '.xls', '.xlsb', '.ods', '.csv')
 
 def load_stored_data(retries=1):
@@ -723,7 +800,23 @@ def _load_once():
         newest_raw = max((o['LastModified'] for o in raw_objs), default=None)
         _storage_status['last_load'] = (f'{len(pq_objs)} converted file(s), '
                                         f'{len(raw_objs)} Excel/CSV file(s) in storage')
+        raw_sig = sorted(f"{o['Key']}|{o['LastModified']}|{o['Size']}" for o in raw_objs)
+        marker = S3_PREFIX + '_converting.json'
         if raw_objs and (newest_pq is None or newest_raw > newest_pq):
+            # Crash-loop guard: if the last start died while converting these exact
+            # files (e.g. out of memory), don't try again on every restart.
+            try:
+                prev = json.loads(s3.get_object(Bucket=S3_BUCKET, Key=marker)['Body'].read())
+            except Exception:
+                prev = None
+            if prev and prev.get('files') == raw_sig and prev.get('attempts', 0) >= 2:
+                _storage_status['last_load'] += ' — conversion skipped (crashed twice)'
+                raise RuntimeError('Converting ' + ', '.join(o['Key'] for o in raw_objs) +
+                                   ' crashed the server twice (file too big for the free server). '
+                                   'Upload it on the website instead, or split it into smaller files.')
+            attempts = (prev.get('attempts', 0) if prev and prev.get('files') == raw_sig else 0) + 1
+            s3.put_object(Bucket=S3_BUCKET, Key=marker,
+                          Body=json.dumps({'files': raw_sig, 'attempts': attempts}).encode())
             # Excel/CSV uploaded straight into the bucket → convert them now
             up_dir = _cache_dir / '_uploads'; up_dir.mkdir(parents=True, exist_ok=True)
             infos = []
@@ -736,9 +829,19 @@ def _load_once():
                 infos.append((name, str(dst)))
             _job.total_files = len(infos)
             _process_files(infos)          # converts, builds caches, saves parquet back
+            try: s3.delete_object(Bucket=S3_BUCKET, Key=marker)
+            except Exception: pass
             if _job.error: raise RuntimeError(_job.error)
+            _loaded_sig['sig'] = None      # next reload re-checks storage
+            return
+        # Fast path: nothing changed in storage since the last load → done in ~1 s
+        pq_sig = sorted(f"{o['Key']}|{o.get('ETag')}" for o in pq_objs)
+        if pq_objs and _df_cache is not None and _loaded_sig.get('sig') == pq_sig:
+            _job.message = f'✓ Already up to date — {len(_df_cache):,} SRs'
+            _job.done = True
             return
         if pq_objs:
+            _loaded_sig['sig'] = pq_sig
             for f in _cache_dir.glob('*.parquet'): f.unlink()
             for o in pq_objs:
                 k = o['Key']; dst = _cache_dir / Path(k).name
