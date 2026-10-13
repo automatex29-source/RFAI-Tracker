@@ -7490,7 +7490,7 @@ async function _checkServer(){
       if(st.last_load&&st.last_load.startsWith('FAILED')) notes.push('⚠ Storage load '+st.last_load);
       else if(st.last_load) notes.push('☁ '+st.last_load);
       if(st.last_save) notes.push('☁ last save '+st.last_save);
-      if(notes.length&&txt) txt.textContent+=' · '+notes.join(' · ');
+      if(notes.length&&txt) txt.textContent='✓ Server ready — drop your files above · '+notes.join(' · ');
     }catch(_){}
     _autoLoadStored();
   }catch(e){

@@ -476,6 +476,16 @@ _stage_dir = _cache_dir / '_incoming'   # new upload is built here, swapped in o
 def process_files_bg(file_infos):
     global _job, _cache_dir, _df_cache, _df_full_cache, _dash_cache
     _job.reset(); _job.running=True
+    try: _process_files(file_infos)
+    except Exception as e:
+        log.error(f"  Upload processing crashed: {e}")
+        import traceback; traceback.print_exc()
+        _job.error=f'Processing failed: {e}'
+    finally:
+        _job.running=False
+
+def _process_files(file_infos):
+    global _df_cache, _df_full_cache, _dash_cache
     _stage_dir.mkdir(parents=True, exist_ok=True)
     for f in _stage_dir.glob("*.parquet"): f.unlink()
     _job.cache_dir=_cache_dir; _job.total_files=len(file_infos)
@@ -971,6 +981,9 @@ async def _catch_all(request:Request,call_next):
 @app.post("/api/upload")
 async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(...)):
     if _job.running: return JSONResponse({"error":"Already processing"},status_code=409)
+    # mark busy NOW: the page polls /api/progress right away, and on a slow server
+    # the background task may not have started yet (it would see the old 'done')
+    _job.reset(); _job.running=True; _job.message='Receiving file(s)…'
     # stream to disk (not RAM) — the free server only has 512 MB
     up_dir=_cache_dir/'_uploads'; up_dir.mkdir(parents=True,exist_ok=True)
     import shutil, uuid
