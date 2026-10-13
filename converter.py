@@ -1545,10 +1545,14 @@ def filter_data(
             "start":s+1,"end":min(s+page_size,total),"months":show_months}
 
 @app.get("/api/home")
-def home_stats():
-    """Milestone journey + recent movement for the Home page."""
+def home_stats(circle:str=Query(default='')):
+    """Milestone journey, recent movement, weekly momentum and circle scorecard
+    for the Home page. ?circle=X scopes everything to one circle."""
     df=_df_full_cache
     if df is None or not len(df): return {"total":0}
+    all_circles=sorted(c for c in df['circle'].astype(str).unique() if c and c!='nan')
+    if circle: df=df[df['circle'].astype(str)==circle]
+    if not len(df): return {"total":0,"circles_all":all_circles,"circle":circle}
     st=df['srStatus'].astype(str).to_numpy()
     tot=len(df)
     def cnt(x): return int((st==x).sum())
@@ -1556,22 +1560,40 @@ def home_stats():
         if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
         return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
     today=pd.Timestamp(date.today()); wk=today-pd.Timedelta(days=7)
-    def last7(col):
-        d=dates(col); return int(((d>wk)&(d<=today)).sum())
-    pri_ever=int((df['priFirst'].astype(str).str.len()>0).sum()) if 'priFirst' in df.columns else 0
-    reoffer=int((df['rfaiReoffer'].astype(str).str.len()>0).sum()) if 'rfaiReoffer' in df.columns else 0
-    rej_ever=int((df['rfaiRej'].astype(str).str.len()>0).sum()) if 'rfaiRej' in df.columns else 0
+    d_rfai=dates('rfaiNotice'); d_fin=dates('finalRfai'); d_pri=dates('priLast'); d_oa=dates('onAir')
+    def last7(d): return int(((d>wk)&(d<=today)).sum())
+    def nonblank(col): return (df[col].astype(str).str.len()>0).to_numpy() if col in df.columns else np.zeros(tot,bool)
     delay=pd.to_numeric(df['delay'],errors='coerce').fillna(-1).to_numpy()
     pend=np.isin(st,['OnAir Pending','Open PRI','RFAI Pending'])
+    # weekly momentum: last 12 weeks (Mon-start), RFAI received vs OnAir achieved
+    start=(today-pd.Timedelta(days=today.weekday()))-pd.Timedelta(weeks=11)
+    weeks=[start+pd.Timedelta(weeks=i) for i in range(12)]
+    def per_week(d):
+        d=d[(d>=start)&(d<=today)]
+        idx=((d-start).dt.days//7).astype(int)
+        c=np.bincount(idx.to_numpy(),minlength=12)[:12] if len(idx) else np.zeros(12,int)
+        return [int(x) for x in c]
+    weekly={"labels":[w.strftime('%d %b') for w in weeks],"rfai":per_week(d_rfai),"onair":per_week(d_oa)}
+    # circle scorecard
+    g=pd.DataFrame({'c':df['circle'].astype(str).to_numpy(),'on':st=='OnAir','pe':pend,
+                    'p30':pend&(delay>30),'pri':st=='Open PRI','rj':st=='Rejected RFAI',
+                    'age':np.where(pend&(delay>=0),delay,np.nan)})
+    g=g[g['c'].str.len()>0]
+    sc=g.groupby('c').agg(total=('on','size'),onair=('on','sum'),pending=('pe','sum'),p30=('p30','sum'),
+                          pri=('pri','sum'),rej=('rj','sum'),age=('age','mean')).reset_index()
+    circles=[{"circle":r.c,"total":int(r.total),"onair":int(r.onair),"pending":int(r.pending),
+              "pending_30":int(r.p30),"pri_open":int(r.pri),"rejected":int(r.rej),
+              "avg_age":None if pd.isna(r.age) else int(round(r.age))} for r in sc.itertuples()]
+    circles.sort(key=lambda x:-x['total'])
     return {
-        "total":tot,
+        "total":tot,"circle":circle,"circles_all":all_circles,
         "statuses":{k:cnt(k) for k in ('OnAir','OnAir Pending','Open PRI','Rejected RFAI','RFAI Pending')},
-        "rfai_rejected_ever":rej_ever, "rfai_reoffered":reoffer,
-        "pri_ever":pri_ever, "pri_open":cnt('Open PRI'),
+        "rfai_rejected_ever":int(nonblank('rfaiRej').sum()), "rfai_reoffered":int(nonblank('rfaiReoffer').sum()),
+        "pri_ever":int(nonblank('priFirst').sum()), "pri_open":cnt('Open PRI'),
         "pending":int(pend.sum()), "pending_30":int((pend&(delay>30)).sum()),
         "pending_90":int((pend&(delay>90)).sum()),
-        "last7":{"rfai":last7('rfaiNotice'),"final":last7('finalRfai'),
-                 "pri_closed":last7('priLast'),"onair":last7('onAir')},
+        "last7":{"rfai":last7(d_rfai),"final":last7(d_fin),"pri_closed":last7(d_pri),"onair":last7(d_oa)},
+        "weekly":weekly,"circles":circles,
         "as_of":date.today().strftime('%d-%b-%Y'),
     }
 

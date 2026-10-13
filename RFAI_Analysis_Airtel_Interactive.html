@@ -671,6 +671,54 @@ html,body{overflow-x:hidden}
 .cc-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px}
 @media(max-width:960px){.cc-grid{grid-template-columns:1fr}}
 .cc-sec{margin:18px 0 10px}
+/* scope selector */
+.cc-scope select{appearance:none;-webkit-appearance:none;background:rgba(79,140,255,.12) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a5c4ff'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border:1px solid rgba(79,140,255,.5);color:#cfe0ff;border-radius:20px;padding:5px 28px 5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.cc-scope select:focus{outline:2px solid rgba(79,140,255,.6)}
+.cc-scope option{background:#121729;color:#eef1f8}
+/* weekly momentum */
+.ccw{display:flex;align-items:flex-end;gap:10px;height:190px;padding:6px 2px 0;border-bottom:1px solid var(--cc-line)}
+.ccw-g{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;min-width:0}
+.ccw-bars{display:flex;align-items:flex-end;gap:3px;height:100%;width:100%;justify-content:center}
+.ccw-bars span{width:42%;max-width:16px;border-radius:4px 4px 0 0;min-height:2px}
+.ccw-bars span:hover{filter:brightness(1.2)}
+.ccw-lbl{display:flex;gap:10px}.ccw-lbl span{flex:1;text-align:center;font-size:10px;color:var(--cc-tx3);white-space:nowrap;overflow:hidden}
+.ccw-tot{display:flex;gap:18px;font-size:12px;color:var(--cc-tx2);margin-top:10px}.ccw-tot b{color:var(--cc-tx)}
+/* scorecard */
+.ccs{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.ccs th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--cc-tx3);font-weight:700;padding:6px 8px;text-align:right;border-bottom:1px solid var(--cc-line);cursor:pointer;user-select:none;white-space:nowrap}
+.ccs th:first-child,.ccs td:first-child{text-align:left}
+.ccs th:hover{color:var(--cc-tx)}.ccs th.on{color:var(--cc-tx)}
+.ccs td{padding:7px 8px;text-align:right;border-bottom:1px solid rgba(255,255,255,.05);color:var(--cc-tx)}
+.ccs tbody tr{cursor:pointer}.ccs tbody tr:hover td{background:rgba(255,255,255,.04)}
+.ccs .rag{display:inline-flex;align-items:center;gap:7px;font-weight:700}
+.ccs .rag i{width:9px;height:9px;border-radius:50%;background:var(--h);box-shadow:0 0 8px var(--h)}
+.ccs .pc{display:inline-block;min-width:38px}
+.ccs-wrap{max-height:320px;overflow:auto}
+/* milestone modal */
+#cc-modal-bg{position:fixed;inset:0;background:rgba(5,8,16,.6);z-index:950;display:none;backdrop-filter:blur(2px)}
+#cc-modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-48%) scale(.98);opacity:0;pointer-events:none;width:560px;max-width:calc(100vw - 32px);max-height:80vh;
+  background:#121729;color:#eef1f8;border:1px solid rgba(255,255,255,.12);border-radius:16px;z-index:951;display:flex;flex-direction:column;
+  box-shadow:0 30px 80px rgba(0,0,0,.55);transition:opacity .16s,transform .16s}
+#cc-modal.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%)}
+.ccm-h{display:flex;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.09)}
+.ccm-e{font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#ff2d3d}
+.ccm-t{font-size:16px;font-weight:800;margin-top:3px}
+.ccm-x{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#eef1f8;border-radius:8px;width:32px;height:32px;cursor:pointer}
+.ccm-b{padding:14px 18px 18px;overflow:auto}
+.ccm-row{display:grid;grid-template-columns:90px 1fr 70px 46px;gap:10px;align-items:center;padding:6px 0;font-size:12.5px;cursor:pointer;border-radius:6px}
+.ccm-row:hover{background:rgba(255,255,255,.04)}
+.ccm-row .k{color:#a3abc2;font-weight:600}.ccm-row .n{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.ccm-row .p{text-align:right;color:#a3abc2;font-size:11.5px}
+.ccm-row .t{height:10px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden}.ccm-row .t span{display:block;height:100%;border-radius:0 4px 4px 0}
+.ccm-go{margin-top:14px;width:100%}
+
+/* keep the site-wide light table styles out of the dark Home page */
+#home-panel.cc table thead th,#home-panel.cc table thead tr th{background:transparent!important}
+#home-panel.cc table tbody tr,#home-panel.cc table tbody tr:nth-child(even){background:transparent!important}
+#home-panel.cc table tbody tr:hover{background:rgba(255,255,255,.04)!important}
+#home-panel.cc table tbody tr{border-bottom:none}
+#home-panel.cc thead{position:sticky;top:0;background:#121729}
 /* re-skin shared home widgets for the dark page */
 #home-panel.cc .hm-legend{color:var(--cc-tx2)}
 #home-panel.cc .hm-row .k,#home-panel.cc .hm-hrow .k{color:var(--cc-tx2)}
@@ -1023,6 +1071,9 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
         <div class="cc-eyebrow">Rollout Command Center</div>
         <div class="cc-title">RFAI → PRI → OnAir · tracking &amp; monitoring</div>
       </div>
+      <label class="cc-scope" title="Scope the whole page to one circle">
+        <select id="cc-scope" onchange="ccSetScope(this.value)" aria-label="Circle scope"><option value="">Central view · all circles</option></select>
+      </label>
       <div class="cc-chips" id="hm-fresh"></div>
       <div class="cc-right">
         <span class="cc-asof" id="cc-asof"></span>
@@ -1041,6 +1092,18 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
       </div>
       <div class="cc-jscroll" id="cc-jscroll"><div class="cc-journey" id="cc-journey"></div></div>
     </section>
+    <div class="cc-grid">
+      <section class="cc-card">
+        <h2><i class="cc-bar"></i>Weekly momentum</h2>
+        <div class="sub">RFAI notices received vs SRs going OnAir, per week (last 12 weeks). Hover a bar for numbers.</div>
+        <div id="cc-weekly"></div>
+      </section>
+      <section class="cc-card">
+        <h2><i class="cc-bar"></i>Circle scorecard</h2>
+        <div class="sub">Health per circle: <b>Red</b> ≥50% of pending over 30 days · <b>Amber</b> ≥25%. Click a column to sort, a row to open its SRs.</div>
+        <div id="cc-score"></div>
+      </section>
+    </div>
     <div class="cc-grid">
       <section class="cc-card">
         <button class="hm-tabletoggle" onclick="hmToggleTable('hm-months')">Table</button>
@@ -1062,6 +1125,12 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
     </div>
   </div>
   <div id="hm-tip" role="tooltip"></div>
+  <div id="cc-modal-bg" onclick="ccCloseModal()"></div>
+  <div id="cc-modal" role="dialog" aria-modal="true" aria-labelledby="cc-modal-t">
+    <div class="ccm-h"><div><div class="ccm-e">Milestone · circle-wise</div><div class="ccm-t" id="cc-modal-t"></div></div>
+      <button class="ccm-x" onclick="ccCloseModal()" aria-label="Close">✕</button></div>
+    <div class="ccm-b" id="cc-modal-b"></div>
+  </div>
   <div id="sr-drawer-bg" onclick="srClose()"></div>
   <aside id="sr-drawer" role="dialog" aria-modal="true" aria-label="SR details">
     <div class="srd-h"><div class="t"><div class="srd-sr" id="srd-sr">—</div><div class="srd-site" id="srd-site"></div></div>
@@ -7999,7 +8068,7 @@ const HM_ST=[  // status order + colours (status palette, always shown with labe
 ];
 const HM_AGE=[['0-30','0–30 days','#7c5a1a'],['30-60','31–60 days','#b7791f'],['60-90','61–90 days','#f59e0b'],['>90','90+ days','#fbbf24']];
 const HM_ST_DARK={'OnAir':'#2fbf71','OnAir Pending':'#f59e0b','Open PRI':'#4f8cff','Rejected RFAI':'#ef4444','RFAI Pending':'#94a3b8'};
-let _ccHome=null;
+let _ccHome=null, _ccCircle='', _ccScoreSort={k:'total',d:-1}, _ccMs=[];
 function _hmEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _hmN(n){return (n||0).toLocaleString();}
 function _showDropzone(serverDown){
@@ -8021,7 +8090,8 @@ function hmBackFromUpload(){
   switchTab('home');
 }
 function hmFilterTable(opt){
-  opt=opt||{};
+  opt=Object.assign({},opt||{});
+  if(opt.circle===undefined && _ccCircle) opt.circle=_ccCircle;
   const DEF={fCircle:'All Circles',fCat:'All Categories',fProj:'All Projects',fToco:'All ToCo',fDomain:'All Domains',fOEM:'All OEMs',fStat:'All Statuses',fMonth:'All Months'};
   Object.keys(DEF).forEach(id=>{ if(_msState[id]) _msState[id].clear(); });
   if(opt.status){ _msState['fStat']=_msState['fStat']||new Set(); _msState['fStat'].add(opt.status); }
@@ -8048,14 +8118,20 @@ function _hmTip(e,html){
 }
 async function renderHome(){
   const info=window._hmInfo||{};
-  if(!_hmDash){ try{ _hmDash=await (await fetch(_B+'/api/dashboard')).json(); }catch(e){ _hmDash=null; } }
-  if(!_ccHome){ try{ _ccHome=await (await fetch(_B+'/api/home')).json(); }catch(e){ _ccHome=null; } }
+  const q=_ccCircle?('?circle='+encodeURIComponent(_ccCircle)):'';
+  if(!_hmDash){ try{ _hmDash=await (await fetch(_B+'/api/dashboard'+q)).json(); }catch(e){ _hmDash=null; } }
+  if(!_ccHome){ try{ _ccHome=await (await fetch(_B+'/api/home'+q)).json(); }catch(e){ _ccHome=null; } }
+  const scope=document.getElementById('cc-scope');
+  if(scope&&_ccHome&&_ccHome.circles_all&&scope.options.length<=1){
+    _ccHome.circles_all.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent='Circle: '+c;scope.appendChild(o);});
+  }
+  if(scope) scope.value=_ccCircle;
   const j=_hmDash||{}, h=_ccHome||{};
   const pend=h.pending||0, p30=h.pending_30||0, share=pend?Math.round(p30/pend*100):0;
   const hc=share>=50?['Red','#ef4444']:share>=25?['Amber','#f59e0b']:['Green','#2fbf71'];
   const files=(info.files||[]).join(', ');
   const fr=document.getElementById('hm-fresh');
-  if(fr) fr.innerHTML='<span class="cc-chip"><b>'+_hmN(info.total||h.total)+'</b> SRs in scope</span>'+
+  if(fr) fr.innerHTML='<span class="cc-chip"><b>'+_hmN(h.total||info.total)+'</b> SRs in scope</span>'+
     (h.total?'<span class="cc-chip health" style="--h:'+hc[1]+'" title="Red: half or more of pending SRs are over 30 days · Amber: a quarter or more"><i></i>Overall '+hc[0]+' · '+share+'% of pending over 30 days</span>':'')+
     (files?'<span class="cc-chip">Source: <b>'+_hmEsc(files.length>32?files.slice(0,30)+'…':files)+'</b></span>':'');
   const ao=document.getElementById('cc-asof');
@@ -8065,8 +8141,71 @@ async function renderHome(){
     document.getElementById('cc-journey').innerHTML='';
     _hmRenderNav(j); return;
   }
-  _hmRenderKpis(j,h); _ccJourney(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
+  _hmRenderKpis(j,h); _ccJourney(h); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
 }
+
+function ccSetScope(v){ _ccCircle=v||''; _hmDash=null; _ccHome=null; renderHome(); }
+function ccCloseModal(){ document.getElementById('cc-modal').classList.remove('open'); document.getElementById('cc-modal-bg').style.display='none'; }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') ccCloseModal(); });
+function ccMilestone(i){
+  const m=_ccMs[i], h=_ccHome||{}; if(!m) return;
+  const rows=(h.circles||[]).map(c=>({c:c.circle,v:m.f(c),t:c.total})).sort((a,b)=>b.v-a.v);
+  const max=Math.max(1,...rows.map(r=>r.v));
+  document.getElementById('cc-modal-t').textContent=m.t+' — '+_hmN(m.v)+' SRs'+(_ccCircle?' · '+_ccCircle:'');
+  document.getElementById('cc-modal-b').innerHTML=
+    '<div style="font-size:12px;color:#a3abc2;margin-bottom:10px">'+m.d+'. Share = of that circle\'s SRs. Click a circle to open its SRs.</div>'+
+    (rows.length?rows.map(r=>'<div class="ccm-row" data-c="'+_hmEsc(r.c)+'"><span class="k">'+_hmEsc(r.c)+'</span>'+
+      '<div class="t"><span style="width:'+(r.v/max*100)+'%;background:'+m.c+'"></span></div>'+
+      '<span class="n">'+_hmN(r.v)+'</span><span class="p">'+(r.t?Math.round(r.v/r.t*100):0)+'%</span></div>').join(''):'<div class="hm-empty">No circle data.</div>')+
+    '<button class="cc-btn ccm-go" id="ccm-go">Open these SRs</button>';
+  const go=m.go;
+  document.getElementById('ccm-go').onclick=()=>{ ccCloseModal(); new Function(go)(); };
+  document.querySelectorAll('#cc-modal-b .ccm-row').forEach(el=>el.onclick=()=>{
+    ccCloseModal();
+    const st=(go.match(/status:'([^']+)'/)||[])[1];
+    hmFilterTable(Object.assign({circle:el.dataset.c},st?{status:st}:{}));
+  });
+  document.getElementById('cc-modal-bg').style.display='block';
+  document.getElementById('cc-modal').classList.add('open');
+}
+function _ccWeekly(h){
+  const el=document.getElementById('cc-weekly'); if(!el) return;
+  const w=h.weekly; if(!w){el.innerHTML='<div class="hm-empty">No weekly data.</div>';return;}
+  const max=Math.max(1,...w.rfai,...w.onair), C1='#4f8cff', C2='#2fbf71';
+  const sum=a=>a.reduce((x,y)=>x+y,0);
+  el.innerHTML='<div class="hm-legend"><span><i style="background:'+C1+'"></i>RFAI received</span><span><i style="background:'+C2+'"></i>OnAir achieved</span></div>'+
+    '<div class="ccw">'+w.labels.map((l,i)=>{
+      const tip='<b>Week of '+_hmEsc(l)+'</b><br>RFAI received: '+_hmN(w.rfai[i])+'<br>OnAir achieved: '+_hmN(w.onair[i]);
+      return '<div class="ccw-g" data-tip="'+_hmEsc(tip)+'"><div class="ccw-bars"><span style="height:'+(w.rfai[i]/max*100)+'%;background:'+C1+'"></span><span style="height:'+(w.onair[i]/max*100)+'%;background:'+C2+'"></span></div></div>';
+    }).join('')+'</div>'+
+    '<div class="ccw-lbl">'+w.labels.map((l,i)=>'<span>'+(i%2===0?_hmEsc(l):'')+'</span>').join('')+'</div>'+
+    '<div class="ccw-tot"><span>12 weeks: <b>'+_hmN(sum(w.rfai))+'</b> RFAI received</span><span><b>'+_hmN(sum(w.onair))+'</b> OnAir achieved</span></div>';
+  el.querySelectorAll('[data-tip]').forEach(g=>{
+    g.addEventListener('mousemove',e=>_hmTip(e,g.getAttribute('data-tip')));
+    g.addEventListener('mouseleave',e=>_hmTip(e,null));
+  });
+}
+function _ccScore(h){
+  const el=document.getElementById('cc-score'); if(!el) return;
+  const rows=(h.circles||[]).map(c=>Object.assign({},c,{oa_pct:c.total?Math.round(c.onair/c.total*100):0,
+    p30_share:c.pending?c.pending_30/c.pending:0}));
+  if(!rows.length){el.innerHTML='<div class="hm-empty">No circle data.</div>';return;}
+  const k=_ccScoreSort.k, d=_ccScoreSort.d;
+  rows.sort((a,b)=>((a[k]??-1)>(b[k]??-1)?1:(a[k]??-1)<(b[k]??-1)?-1:0)*d);
+  const COLS=[['circle','Circle'],['total','SRs'],['oa_pct','OnAir %'],['pending','Pending'],['pending_30','>30 d'],['pri_open','Open PRI'],['avg_age','Avg age']];
+  el.innerHTML='<div class="ccs-wrap"><table class="ccs"><thead><tr>'+COLS.map(([key,lab])=>'<th data-k="'+key+'" class="'+(key===k?'on':'')+'">'+lab+(key===k?(d<0?' ↓':' ↑'):'')+'</th>').join('')+'</tr></thead><tbody>'+
+    rows.map(r=>{
+      const hc=r.p30_share>=.5?'#ef4444':r.p30_share>=.25?'#f59e0b':'#2fbf71', hl=r.p30_share>=.5?'Red':r.p30_share>=.25?'Amber':'Green';
+      return '<tr data-c="'+_hmEsc(r.circle)+'" title="'+hl+': '+Math.round(r.p30_share*100)+'% of pending over 30 days"><td><span class="rag" style="--h:'+hc+'"><i></i>'+_hmEsc(r.circle)+'</span></td>'+
+        '<td>'+_hmN(r.total)+'</td><td><span class="pc">'+r.oa_pct+'%</span></td><td>'+_hmN(r.pending)+'</td>'+
+        '<td style="color:'+(r.pending_30?'#fca5a5':'inherit')+'">'+_hmN(r.pending_30)+'</td><td>'+_hmN(r.pri_open)+'</td><td>'+(r.avg_age!=null?r.avg_age+' d':'—')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  el.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+    const key=th.dataset.k; _ccScoreSort={k:key,d:_ccScoreSort.k===key?-_ccScoreSort.d:(key==='circle'?1:-1)}; _ccScore(h);
+  });
+  el.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>hmFilterTable({circle:tr.dataset.c}));
+}
+
 function ccScroll(d){ const el=document.getElementById('cc-jscroll'); if(el) el.scrollBy({left:d*400,behavior:'smooth'}); }
 function _ccJourney(h){
   const el=document.getElementById('cc-journey'); if(!el||!h||!h.total) return;
@@ -8075,15 +8214,15 @@ function _ccJourney(h){
   const accepted=tot-rej, priClear=Math.max(0,accepted-priOpen);
   const B=(cls,txt)=>'<span class="cc-badge '+cls+'">'+txt+'</span>';
   const N=[
-    {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,start:true,c:'#ff2d3d',
+    {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,start:true,c:'#ff2d3d',f:c=>c.total,
      b:[B('n',_hmN(h.pending)+' not yet OnAir')],go:"hmFilterTable({})"},
-    {t:'RFAI notice',d:'first milestone',v:tot,c:'#2fbf71',
+    {t:'RFAI notice',d:'first milestone',v:tot,c:'#2fbf71',f:c=>c.total,
      b:[l7.rfai?B('g','+'+_hmN(l7.rfai)+' in 7 d'):'' ],go:"hmFilterTable({})"},
-    {t:'RFAI accepted',d:'not rejected (or re-offered)',v:accepted,c:'#2fbf71',
+    {t:'RFAI accepted',d:'not rejected (or re-offered)',v:accepted,c:'#2fbf71',f:c=>c.total-c.rejected,
      b:[rej?B('r',_hmN(rej)+' rejected'):'',h.rfai_reoffered?B('a',_hmN(h.rfai_reoffered)+' re-offered'):'',l7.final?B('g','+'+_hmN(l7.final)+' in 7 d'):''],go:"hmFilterTable({status:'Rejected RFAI'})"},
-    {t:'PRI clear',d:'no open Post-RFAI Issue',v:priClear,c:'#4f8cff',
+    {t:'PRI clear',d:'no open Post-RFAI Issue',v:priClear,c:'#4f8cff',f:c=>Math.max(0,c.total-c.rejected-c.pri_open),
      b:[priOpen?B('b',_hmN(priOpen)+' PRI open'):'',h.pri_ever?B('n',_hmN(h.pri_ever)+' had PRI'):'',l7.pri_closed?B('g','+'+_hmN(l7.pri_closed)+' closed in 7 d'):''],go:"hmFilterTable({status:'Open PRI'})"},
-    {t:'OnAir',d:'commercial traffic on air',v:onair,c:'#a855f7',
+    {t:'OnAir',d:'commercial traffic on air',v:onair,c:'#a855f7',f:c=>c.onair,
      b:[h.pending?B('a',_hmN(h.pending)+' pending'):'',h.pending_30?B('r',_hmN(h.pending_30)+' over 30 d'):'',l7.onair?B('g','+'+_hmN(l7.onair)+' in 7 d'):''],go:"hmFilterTable({status:'OnAir'})"},
   ];
   const n=N.length, X=i=>9+i*(82/(n-1)), TOP=150, BOT=300, H=450;
@@ -8099,13 +8238,14 @@ function _ccJourney(h){
     '<path d="'+d+'" fill="none" stroke="url(#ccg)" stroke-width="16" stroke-opacity=".22" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+d+'" fill="none" stroke="url(#ccg)" stroke-width="6" stroke-opacity=".85" vector-effect="non-scaling-stroke"/>'+
     '<path class="cc-flow" d="'+d+'" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>';
+  _ccMs=N;
   N.forEach((m,i)=>{
     const pct=tot?Math.round(m.v/tot*100):0, R=46, C=2*Math.PI*R, dash=C*pct/100;
     const ring=m.start
       ? '<circle cx="55" cy="55" r="'+R+'" fill="url(#ccr'+i+')"/><defs><radialGradient id="ccr'+i+'" cx=".35" cy=".3"><stop offset="0" stop-color="#ff5a66"/><stop offset="1" stop-color="#9b0010"/></radialGradient></defs>'
       : '<circle cx="55" cy="55" r="'+R+'" fill="#0d1222" stroke="rgba(255,255,255,.08)" stroke-width="9"/>'+
         '<circle cx="55" cy="55" r="'+R+'" fill="none" stroke="'+m.c+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="'+dash.toFixed(1)+' '+C.toFixed(1)+'" transform="rotate(-90 55 55)"/>';
-    html+='<button class="cc-node" style="left:'+X(i)+'%;top:'+Y(i)+'px;--c:'+m.c+';--glow:'+m.c+'55" onclick="'+m.go+'" '+
+    html+='<button class="cc-node" style="left:'+X(i)+'%;top:'+Y(i)+'px;--c:'+m.c+';--glow:'+m.c+'55" onclick="ccMilestone('+i+')" '+
       'aria-label="'+m.t+': '+_hmN(m.v)+' SRs, '+pct+'%">'+
       '<svg viewBox="0 0 110 110">'+ring+'</svg>'+
       '<span class="num"><b>'+_hmN(m.v)+'</b><span>'+(m.start?'SRs':pct+'%')+'</span></span>'+
