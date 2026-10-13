@@ -7486,6 +7486,10 @@ async function _checkServer(){
       const notes=[];
       if(!c.storage_configured) notes.push('⚠ Storage not set (S3_* settings missing) — data will not be saved');
       if(!c.upload_enabled) notes.push('🔒 Upload locked — ADMIN_PASSWORD not set on server');
+      const st=c.storage||{};
+      if(st.last_load&&st.last_load.startsWith('FAILED')) notes.push('⚠ Storage load '+st.last_load);
+      else if(st.last_load) notes.push('☁ '+st.last_load);
+      if(st.last_save) notes.push('☁ last save '+st.last_save);
       if(notes.length&&txt) txt.textContent+=' · '+notes.join(' · ');
     }catch(_){}
     _autoLoadStored();
@@ -7830,7 +7834,7 @@ async function _fetchPage(page){
   tb.innerHTML='<tr><td colspan="100" style="text-align:center;padding:40px;color:#94a3b8">⏳ Loading…</td></tr>';
   try{
     const r=await fetch(_B+'/api/filter?'+p);const j=await r.json();
-    if(j.error){tb.innerHTML='<tr class="nodt"><td colspan="100">'+j.error+'</td></tr>';return;}
+    if(j.error){tb.innerHTML='<tr class="nodt"><td colspan="100">'+(j.error==='No data'?'No data on the server right now (it may have restarted). Refresh the page; if it stays empty, upload the file again.':j.error)+'</td></tr>';return;}
     // Rebuild thead if months changed (Python returns months with response)
     const newVM=(j.months||[]).join(',');
     if(!_theadBuilt || _lastVM!==newVM){ _theadBuilt=false; _bldThead(j.months||[]); }

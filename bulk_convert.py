@@ -143,6 +143,11 @@ def upload(path):
     key = prefix + DEDUP_NAME
     print(f'  Uploading {Path(path).stat().st_size/1e6:,.1f} MB -> s3://{bucket}/{key}')
     s3.upload_file(str(path), bucket, key)
+    # remove older files (e.g. from a browser upload) so only this data is loaded
+    for page in s3.get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix):
+        for o in page.get('Contents', []):
+            if o['Key'] != key and o['Key'].endswith('.parquet'):
+                s3.delete_object(Bucket=bucket, Key=o['Key'])
     print('  ✓ Uploaded. Open the Render app and click Reload (or restart it).')
 
 

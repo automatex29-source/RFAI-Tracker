@@ -614,28 +614,33 @@ def _s3():
                             s3={'addressing_style': 'path'},
                             response_checksum_validation='when_required'))
 
+_storage_status = {'last_save': None, 'last_load': None}
+
 def save_to_storage():
-    """After a browser upload: store the deduplicated data in the bucket so it
-    survives restarts (Render free plan restarts after 15 min idle)."""
-    if _df_full_cache is None: return
+    """After a browser upload: copy the converted parquet files to the bucket
+    (no extra RAM — files are streamed from disk) and remove older files there,
+    so the data survives restarts (Render free plan restarts after 15 min idle)."""
+    files = sorted(_cache_dir.glob('*.parquet'))
+    if not files: return
     try:
         _job.message = 'Saving to cloud storage…'
-        out = _cache_dir / 'rfai_dedup.parquet.save'
-        df = _df_full_cache.copy()
-        for c in df.columns:
-            if c in ('delay', 'priDays'): df[c] = df[c].astype('int16')
-            else: df[c] = df[c].astype(str).replace({'nan': ''})
-        pq.write_table(pa.Table.from_pandas(df[[c for c in OUT if c in df.columns]],
-                                            preserve_index=False),
-                       str(out), compression='zstd')
-        del df
-        _s3().upload_file(str(out), S3_BUCKET, S3_PREFIX + 'rfai_dedup.parquet')
-        out.unlink()
-        _job.message += ' ✓ saved'
-        log.info(f"  Saved to s3://{S3_BUCKET}/{S3_PREFIX}rfai_dedup.parquet")
+        s3 = _s3()
+        new_keys = set()
+        for f in files:
+            key = S3_PREFIX + f.name
+            s3.upload_file(str(f), S3_BUCKET, key); new_keys.add(key)
+        old = []
+        for page in s3.get_paginator('list_objects_v2').paginate(Bucket=S3_BUCKET, Prefix=S3_PREFIX):
+            old += [o['Key'] for o in page.get('Contents', [])
+                    if o['Key'].endswith('.parquet') and o['Key'] not in new_keys]
+        for k in old: s3.delete_object(Bucket=S3_BUCKET, Key=k)
+        _job.message = f'✓ Saved to cloud storage ({len(files)} file(s))'
+        _storage_status['last_save'] = f'ok: {len(files)} file(s) at {datetime.now():%d-%b %H:%M}'
+        log.info(f"  Saved {len(files)} file(s) to s3://{S3_BUCKET}/{S3_PREFIX}")
     except Exception as e:
         log.error(f"  Save to storage failed: {e}")
-        _job.message = f'Loaded, but saving to storage failed: {e}'
+        _job.message = f'Loaded, but saving to storage FAILED: {e}'
+        _storage_status['last_save'] = f'FAILED: {e}'
 
 def load_stored_data():
     """Pull parquet from the bucket (if configured), then build caches from disk."""
@@ -658,6 +663,7 @@ def load_stored_data():
                     os.replace(str(dst) + '.part', dst)
             else:
                 log.info(f"  No parquet under s3://{S3_BUCKET}/{S3_PREFIX} yet")
+            _storage_status['last_load'] = f'{len(keys)} file(s) found in storage'
         if any(_cache_dir.glob('*.parquet')):
             _job.message = 'Loading data…'
             _df_cache = _df_full_cache = _dash_cache = None; gc.collect()
@@ -672,6 +678,7 @@ def load_stored_data():
         log.error(f"  Storage load failed: {e}")
         import traceback; traceback.print_exc()
         _job.error = str(e); _job.message = 'Storage load failed: ' + str(e)
+        _storage_status['last_load'] = f'FAILED: {e}'
     finally:
         _job.progress = 100; _job.running = False
         log.info('  ' + _job.message)
@@ -960,7 +967,10 @@ def config():
     env_names = sorted(k for k in os.environ if 'PASS' in k.upper())
     return {"upload_enabled": bool(ADMIN_PASSWORD) or not _ON_SERVER,
             "storage_configured": bool(S3_BUCKET),
-            "password_like_vars": env_names}
+            "password_like_vars": env_names,
+            "data_loaded": _df_cache is not None,
+            "srs_loaded": len(_df_cache) if _df_cache is not None else 0,
+            "storage": _storage_status}
 
 @app.get("/api/summary")
 def summary():
