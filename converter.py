@@ -1247,9 +1247,9 @@ def _pw_ok(given, expected):
     import secrets
     return given is not None and secrets.compare_digest(given.encode(), expected.encode())
 
-# The public cloud copy (Render) is switched off: the tool now runs on the office
-# network with SQL Server. Set CLOUD_ENABLED=1 on Render to turn it back on.
-_CLOUD_OFF = _ON_SERVER and os.environ.get('CLOUD_ENABLED', '').strip() not in ('1', 'true', 'yes')
+# Kill-switch for the public cloud copy (Render): set CLOUD_DISABLED=1 there to show
+# only a "moved" notice and serve no data.
+_CLOUD_OFF = _ON_SERVER and os.environ.get('CLOUD_DISABLED', '').strip() in ('1', 'true', 'yes')
 _MOVED_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport"
 content="width=device-width,initial-scale=1"><title>RFAI Tracker</title><style>
 body{font-family:system-ui,sans-serif;background:#f5f7fb;color:#1a1d23;display:flex;
@@ -1282,7 +1282,7 @@ async def _auth(request:Request,call_next):
 @app.on_event("startup")
 def _startup_load():
     if _CLOUD_OFF:
-        log.info("  Cloud copy switched off (set CLOUD_ENABLED=1 to enable)"); return
+        log.info("  Cloud copy switched off (CLOUD_DISABLED=1)"); return
     threading.Thread(target=load_stored_data, kwargs={'retries': 3}, daemon=True).start()
 
 @app.post("/api/reload")

@@ -126,12 +126,10 @@ on the start screen (or restart the service).
 Pending SRs' aging is recalculated against today's date every time the data loads,
 so stored data never shows stale aging.
 
-## Deploy on Render (switched off)
+## Deploy on Render
 
-The cloud copy is switched off: on Render the app only shows a "moved" notice and serves
-no data. Add the environment variable `CLOUD_ENABLED=1` on Render to turn it back on.
-
-### Original Render setup
+To take the cloud copy offline without deleting it, add `CLOUD_DISABLED=1` on Render. The site then
+only shows a "moved" notice and serves no data.
 1. Go to https://dashboard.render.com → **New** → **Blueprint**.
 2. Connect this GitHub repo (`automatex29-source/RFAI-Tracker`) and pick the branch.
 3. Render reads `render.yaml` and creates the `rfai-tracker` web service. Click **Apply**.
