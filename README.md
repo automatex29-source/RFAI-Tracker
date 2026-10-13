@@ -81,8 +81,8 @@ Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render s
 **Environment** tab.
 
 **Who can see it:**
-- `APP_PASSWORD` empty: **anyone with the link can view** the dashboard.
-- `APP_PASSWORD` set: viewers must log in (any username, that password).
+- By default **anyone with the link can view** the dashboard.
+- To require a login for viewers, add a `VIEW_PASSWORD` variable (any username, that password).
 - Uploading through the browser is **disabled** on Render, so visitors can't replace your
   data. Set `ADMIN_PASSWORD` to upload from the browser yourself. Uploaded data is then
   saved to the storage bucket automatically, so it survives restarts. No PC setup is needed

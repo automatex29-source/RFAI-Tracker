@@ -832,7 +832,7 @@ app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_
 from fastapi import Request
 from fastapi.responses import JSONResponse as _JR
 
-APP_PASSWORD   = os.environ.get('APP_PASSWORD', '')    # set = whole site needs login
+VIEW_PASSWORD  = os.environ.get('VIEW_PASSWORD', '')   # set = whole site needs login (default: public)
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # set = needed to upload data
 # On a public server (Render) browser uploads are blocked unless ADMIN_PASSWORD
 # is set, so visitors can view the dashboard but never replace the data.
@@ -861,8 +861,8 @@ async def _auth(request:Request,call_next):
         if not _pw_ok(_basic_pw(request), ADMIN_PASSWORD):
             return Response('Admin login required', status_code=401,
                             headers={'WWW-Authenticate': 'Basic realm="RFAI admin"'})
-    elif APP_PASSWORD and path != '/api/ping':
-        if not _pw_ok(_basic_pw(request), APP_PASSWORD):
+    elif VIEW_PASSWORD and path != '/api/ping':
+        if not _pw_ok(_basic_pw(request), VIEW_PASSWORD):
             return Response('Login required', status_code=401,
                             headers={'WWW-Authenticate': 'Basic realm="RFAI"'})
     return await call_next(request)

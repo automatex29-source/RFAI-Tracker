@@ -20,7 +20,5 @@ services:
         sync: false
       - key: S3_REGION        # Supabase: the Region shown on its S3 settings page
         sync: false
-      - key: APP_PASSWORD     # leave EMPTY = anyone with the link can view the dashboard
-        sync: false
       - key: ADMIN_PASSWORD   # optional: allows browser uploads; empty = uploads disabled
         sync: false
