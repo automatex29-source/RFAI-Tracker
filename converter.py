@@ -594,6 +594,20 @@ def _build_caches():
 # ── Persistent storage: Cloudflare R2 / AWS S3 ────────────────────────────
 # bulk_convert.py --upload puts rfai_dedup.parquet in the bucket; the app
 # downloads it on start (and on POST /api/reload) so data survives restarts.
+def _clean_storage_env():
+    """Forgive copy-paste slips in the Render settings: spaces, quotes,
+    a missing https://, 's3://' or slashes around the bucket name."""
+    for k in ('S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_REGION', 'S3_PREFIX'):
+        v = os.environ.get(k)
+        if v is None: continue
+        v = v.strip().strip('"').strip("'").strip()
+        if k == 'S3_ENDPOINT' and v:
+            if not v.startswith(('http://', 'https://')): v = 'https://' + v
+            v = v.rstrip('/')
+        if k == 'S3_BUCKET': v = v.replace('s3://', '').strip('/')
+        os.environ[k] = v
+_clean_storage_env()
+
 S3_BUCKET = os.environ.get('S3_BUCKET', '')
 S3_PREFIX = os.environ.get('S3_PREFIX', 'rfai/').rstrip('/') + '/'
 
@@ -605,7 +619,7 @@ def _s3_region():
 
 def _s3():
     import boto3
-    return boto3.client('s3', endpoint_url=os.environ.get('S3_ENDPOINT') or None,
+    c = boto3.client('s3', endpoint_url=os.environ.get('S3_ENDPOINT') or None,
                         aws_access_key_id=os.environ.get('S3_ACCESS_KEY'),
                         aws_secret_access_key=os.environ.get('S3_SECRET_KEY'),
                         region_name=_s3_region(),
@@ -613,8 +627,25 @@ def _s3():
                             request_checksum_calculation='when_required',
                             s3={'addressing_style': 'path'},
                             response_checksum_validation='when_required'))
+    c.meta.events.register('after-call.s3', _capture_body)
+    return c
 
 _storage_status = {'last_save': None, 'last_load': None}
+
+def _s3_err(e):
+    """Readable storage error: HTTP status + code + message + raw reply."""
+    r = getattr(e, 'response', None) or {}
+    meta = r.get('ResponseMetadata', {}); err = r.get('Error', {})
+    msg = f"HTTP {meta.get('HTTPStatusCode','?')} {err.get('Code','')} {err.get('Message','')}".strip()
+    if _last_s3_body.get('body'): msg += ' | reply: ' + _last_s3_body['body']
+    return msg if r else str(e)
+
+_last_s3_body = {}
+def _capture_body(http_response=None, **kw):
+    try:
+        if http_response is not None and http_response.status_code >= 400:
+            _last_s3_body['body'] = http_response.content[:300].decode('utf-8', 'replace')
+    except Exception: pass
 
 def save_to_storage():
     """After a browser upload: copy the converted parquet files to the bucket
@@ -639,8 +670,8 @@ def save_to_storage():
         log.info(f"  Saved {len(files)} file(s) to s3://{S3_BUCKET}/{S3_PREFIX}")
     except Exception as e:
         log.error(f"  Save to storage failed: {e}")
-        _job.message = f'Loaded, but saving to storage FAILED: {e}'
-        _storage_status['last_save'] = f'FAILED: {e}'
+        _job.message = f'Loaded, but saving to storage FAILED: {_s3_err(e)}'
+        _storage_status['last_save'] = f'FAILED: {_s3_err(e)}'
 
 def load_stored_data():
     """Pull parquet from the bucket (if configured), then build caches from disk."""
@@ -678,7 +709,7 @@ def load_stored_data():
         log.error(f"  Storage load failed: {e}")
         import traceback; traceback.print_exc()
         _job.error = str(e); _job.message = 'Storage load failed: ' + str(e)
-        _storage_status['last_load'] = f'FAILED: {e}'
+        _storage_status['last_load'] = f'FAILED: {_s3_err(e)}'
     finally:
         _job.progress = 100; _job.running = False
         log.info('  ' + _job.message)
@@ -960,6 +991,47 @@ def progress():
 
 @app.get("/api/ping")
 def ping(): return {"ok":True}
+
+@app.get("/api/storage-test")
+def storage_test():
+    """Try the storage connection and explain what is wrong (no secrets shown)."""
+    ak = os.environ.get('S3_ACCESS_KEY', ''); sk = os.environ.get('S3_SECRET_KEY', '')
+    ep = os.environ.get('S3_ENDPOINT', '')
+    info = {"endpoint": ep, "bucket": S3_BUCKET, "region": _s3_region(), "prefix": S3_PREFIX,
+            "access_key_length": len(ak), "secret_key_length": len(sk),
+            "access_key_starts": ak[:4] + '…' if ak else ''}
+    hints = []
+    if not ep: hints.append('S3_ENDPOINT is empty')
+    if not S3_BUCKET: hints.append('S3_BUCKET is empty')
+    if not ak or not sk: hints.append('S3_ACCESS_KEY / S3_SECRET_KEY missing')
+    if ak and sk and len(ak) > len(sk): hints.append('Access key is longer than secret key — they may be swapped')
+    if 'supabase' in ep and not ep.endswith('/storage/v1/s3'):
+        hints.append("Supabase endpoint should end with /storage/v1/s3")
+    if 'supabase' in ep and not os.environ.get('S3_REGION'):
+        hints.append('S3_REGION is empty — Supabase needs it (e.g. ap-south-1)')
+    try:
+        _last_s3_body.clear()
+        s3 = _s3()
+        names = [b['Name'] for b in s3.list_buckets().get('Buckets', [])]
+        info['buckets_visible_with_these_keys'] = names
+        if S3_BUCKET and names and S3_BUCKET not in names:
+            hints.append(f"Bucket '{S3_BUCKET}' not found — these keys see: {names}")
+    except Exception as e:
+        info['list_buckets_error'] = _s3_err(e)
+    try:
+        _last_s3_body.clear()
+        r = _s3().list_objects_v2(Bucket=S3_BUCKET, Prefix=S3_PREFIX)
+        info['files_in_storage'] = [o['Key'] for o in r.get('Contents', [])]
+        info['ok'] = True
+    except Exception as e:
+        info['ok'] = False; info['error'] = _s3_err(e)
+        err = info['error']
+        if 'SignatureDoesNotMatch' in err or '403' in err:
+            hints.append('Keys or region are wrong: re-copy Access key ID / Secret access key, check S3_REGION')
+        if 'NoSuchBucket' in err or '404' in err:
+            hints.append('Bucket name or endpoint is wrong')
+    info['hints'] = hints
+    return info
 
 @app.get("/api/config")
 def config():
