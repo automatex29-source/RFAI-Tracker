@@ -602,6 +602,51 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
   .tabbar{padding:0 8px;overflow-x:auto;scrollbar-width:none}.tabbar::-webkit-scrollbar{display:none}.tab{padding:11px 12px;white-space:nowrap;flex-shrink:0}
   .hm-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 html,body{overflow-x:hidden}
+
+/* ════════════ SHARED THEME — one look across all pages ════════════ */
+body{background:#f4f5f9}
+#duckdb-badge{display:none!important}
+.tbar{box-shadow:0 1px 0 var(--bdr)!important}
+.tabbar{box-shadow:0 1px 0 var(--bdr)}
+.tab{border-radius:0;color:var(--tx2)}
+.tab:hover{color:var(--tx);background:var(--surf2)}
+.tab.active{color:var(--ac)!important;border-bottom-color:var(--ac)!important;background:transparent}
+.btn{border-radius:9px!important}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+/* every number card: white, coloured edge + dot, dark text */
+.kpi,.mg-kpi,.ui-kpi{background:#fff!important;border:1px solid var(--bdr)!important;border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(16,24,40,.05)!important;color:var(--tx);position:relative;overflow:hidden;padding:12px 14px 11px!important}
+.kpi::before,.mg-kpi::before,.ui-kpi::before{content:''!important;position:absolute!important;inset:0 auto 0 0!important;width:4px!important;
+  border:none!important;border-radius:0!important;background:var(--k,#64748b)!important;z-index:2}
+.kpi::after,.mg-kpi::after,.ui-kpi::after{display:none!important}
+.kpi:hover,.mg-kpi:hover{box-shadow:0 6px 18px rgba(16,24,40,.08)!important}
+.kpi.k-all{--k:#1a1a2e}.kpi.k-on{--k:#0d9e5c}.kpi.k-pe{--k:#d97706}.kpi.k-pri{--k:#2563eb}
+.kpi.k-rj{--k:#dc2626}.kpi.k-op{--k:#92400e}.kpi.k-avg{--k:#475569}
+.kpi-label,.mg-kpi-label,.ui-kpi-l{color:var(--tx2)!important;font-size:10px!important;font-weight:700!important;letter-spacing:.05em!important;text-transform:uppercase}
+.kpi-val,.mg-kpi-val,.ui-kpi-v{color:var(--tx)!important;text-shadow:none!important;font-size:22px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.kpi-sub,.mg-kpi-sub,.ui-kpi-s{color:var(--tx3)!important;font-size:10.5px!important}
+.mg-kpi-label span{color:var(--tx3)!important;opacity:1!important}
+.kpi-icon,.ui-kpi-ic{background:color-mix(in srgb,var(--k,#64748b) 12%,#fff)!important;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.kpi-icon svg,.ui-kpi-ic svg{stroke:var(--k,#64748b)!important;width:12px;height:12px;stroke-width:2;fill:none}
+.kpi-bar{background:var(--surf2)!important}.kpi-bar-fill,.mg-kpi-bar{background:var(--k,#64748b)!important;opacity:.55}
+.kpi-sub-dot{background:var(--k,#64748b)!important}
+.ui-kpi-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
+.ui-kpi-v{margin-bottom:3px}
+/* chart & content cards */
+.chart-card{border-radius:14px!important;box-shadow:0 1px 3px rgba(16,24,40,.05)!important}
+.chart-card::before{display:none!important}
+.chart-card:hover{box-shadow:0 6px 18px rgba(16,24,40,.07)!important}
+/* management tables: one header style, brand dark */
+#mgmt-panel table thead th{background:#1a1a2e!important;color:#fff!important;border-right:1px solid rgba(255,255,255,.08)!important}
+#mgmt-panel table tbody tr[style*="gradient"],#mgmt-panel table tbody tr[style*="gradient"] td{background:#2a2a40!important;color:#fff!important}
+#mgmt-panel table{border-radius:12px;overflow:hidden}
+/* download / secondary actions: one outline style */
+button[onclick="exportMgmt()"],button[onclick="exportDashboard()"],button[onclick="resetMgmtFilters()"]{background:#fff!important;color:var(--tx)!important;border:1px solid var(--bdr2)!important;box-shadow:none!important}
+button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{stroke:var(--tx)!important}
+/* scrollbars */
+*::-webkit-scrollbar{width:10px;height:10px}*::-webkit-scrollbar-thumb{background:#cdd2de;border-radius:10px;border:2px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:#aab1c2;background-clip:padding-box;border:2px solid transparent}
+
 </style>
 </head>
 <body>
@@ -1264,7 +1309,7 @@ html,body{overflow-x:hidden}
 
       <!-- 4 TABS: Overall | By Month | By Circle | By Category -->
       <div style="display:inline-flex;border:1.5px solid #c7d2fe;border-radius:9px;overflow:hidden;margin-left:10px;background:#f8faff">
-        <button id="mg-tab-overall"   onclick="setMgmtView('overall')"   style="font-family:var(--fn);font-size:11px;font-weight:700;padding:6px 15px;border:none;cursor:pointer;background:#1e40af;color:#fff;border-right:1px solid #c7d2fe">Overall</button>
+        <button id="mg-tab-overall"   onclick="setMgmtView('overall')"   style="font-family:var(--fn);font-size:11px;font-weight:700;padding:6px 15px;border:none;cursor:pointer;background:#1a1a2e;color:#fff;border-right:1px solid #c7d2fe">Overall</button>
         <button id="mg-tab-month"     onclick="setMgmtView('month')"     style="font-family:var(--fn);font-size:11px;font-weight:700;padding:6px 15px;border:none;cursor:pointer;background:transparent;color:#64748b;border-right:1px solid #c7d2fe">By Month</button>
         <button id="mg-tab-circle"    onclick="setMgmtView('circle')"    style="font-family:var(--fn);font-size:11px;font-weight:700;padding:6px 15px;border:none;cursor:pointer;background:transparent;color:#64748b;border-right:1px solid #c7d2fe">By Circle</button>
         <button id="mg-tab-category"  onclick="setMgmtView('category')"  style="font-family:var(--fn);font-size:11px;font-weight:700;padding:6px 15px;border:none;cursor:pointer;background:transparent;color:#64748b">By Category</button>
@@ -1291,7 +1336,7 @@ html,body{overflow-x:hidden}
     <div style="display:flex;min-height:calc(100vh - 165px)">
 
       <!-- SIDEBAR — navigate between the 3 tables -->
-      <div style="width:72px;background:#1e3a8a;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:165px;max-height:calc(100vh - 165px);overflow-y:auto">
+      <div style="width:72px;background:#1a1a2e;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:165px;max-height:calc(100vh - 165px);overflow-y:auto">
         <div style="font-size:7px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;text-align:center">TABLES</div>
 
         <!-- Table 1 nav -->
@@ -6436,7 +6481,7 @@ function _buildMgKpis(totals){
   ];
 
   el.innerHTML=cards.map(c=>`
-    <div class="mg-kpi" style="background:${c.bg};box-shadow:0 4px 14px ${c.sh};flex:1 1 0;min-width:0;max-width:160px;cursor:pointer;position:relative" onclick="_showCircleBreakdown('${c.l}')" title="Click to see circle-wise breakdown">
+    <div class="mg-kpi" style="--k:${(String(c.bg).match(/#[0-9a-fA-F]{6}/g)||['#64748b']).pop()};flex:1 1 0;min-width:0;max-width:160px;cursor:pointer;position:relative" onclick="_showCircleBreakdown('${c.l}')" title="Click to see circle-wise breakdown">
       <div class="mg-kpi-label" style="display:flex;align-items:center;justify-content:space-between">${c.l}<span style="font-size:8px;opacity:.55;font-weight:600;letter-spacing:.02em">↗ CIRCLE</span></div>
       <div class="mg-kpi-val">${c.v}</div>
       <div class="mg-kpi-sub">${c.s}</div>
@@ -6718,7 +6763,7 @@ function setMgmtTable(n){
     if(wrap) wrap.style.display = i===n ? '' : 'none';
     if(sb){
       const active = i===n;
-      const colors = ['','#1e40af','#d97706','#10b981'];
+      const colors = ['','#e40000','#e40000','#e40000'];
       if(active){
         sb.style.background = colors[i];
         sb.style.color = '#fff';
@@ -6752,7 +6797,7 @@ function setMgmtView(mode){
     const btn = document.getElementById('mg-tab-'+m);
     if(!btn) return;
     const active = m === mode;
-    btn.style.background = active ? '#1e40af' : 'transparent';
+    btn.style.background = active ? '#1a1a2e' : 'transparent';
     btn.style.color = active ? '#fff' : '#64748b';
   });
   _mgRender();
@@ -8699,9 +8744,9 @@ function _renderDashWithData(j){
       const lOA=legacyMs.reduce((a,m)=>a+(m.statuses['OnAir']||0),0);
       const lRate=lTot?Math.round(lOA/lTot*100):0;
       el.insertAdjacentHTML('beforeend',`
-        <div class="kpi" style="background:linear-gradient(135deg,#374151,#52525b);box-shadow:0 4px 14px rgba(82,82,91,.4);cursor:pointer;border:1.5px solid #d97706;flex:1 1 0;min-width:120px;max-width:200px" onclick="_showLegacyRfaiModal()" title="Click to view full Legacy RFAI trend">
+        <div class="kpi" style="--k:#d97706;cursor:pointer;flex:1 1 0;min-width:120px;max-width:200px" onclick="_showLegacyRfaiModal()" title="Click to view full Legacy RFAI trend">
           <div class="kpi-top">
-            <div class="kpi-label" style="color:rgba(255,255,255,.8)">Legacy RFAI</div>
+            <div class="kpi-label">Legacy RFAI</div>
             <div style="font-size:8px;font-weight:800;background:#d97706;color:#fff;padding:1px 6px;border-radius:8px;letter-spacing:.05em;white-space:nowrap">LEGACY</div>
           </div>
           <div class="kpi-val">${lTot.toLocaleString()}</div>
@@ -11172,16 +11217,12 @@ const _FIN_ICONS = {
   warn: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
 };
 function _finKpiCard(label, value, sub, grad, icon){
-  return `<div style="background:linear-gradient(135deg,${grad});border-radius:14px;padding:14px 16px;position:relative;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.12)">
-    <div style="position:absolute;top:-8px;right:-8px;width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.06)"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div style="font-size:9px;font-weight:800;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.1em">${label}</div>
-      <div style="width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:#fff;stroke-width:2;fill:none">${icon}</svg>
-      </div>
-    </div>
-    <div style="font-family:'Inter Tight',sans-serif;font-size:22px;font-weight:900;color:#fff;letter-spacing:-.04em;line-height:1.1;margin-bottom:4px">${value}</div>
-    <div style="font-size:10px;color:rgba(255,255,255,.55);font-weight:500">${sub}</div>
+  const k=(String(grad).match(/#[0-9a-fA-F]{6}/g)||['#64748b']).pop();
+  return `<div class="ui-kpi" style="--k:${k}">
+    <div class="ui-kpi-top"><div class="ui-kpi-l">${label}</div>
+      <div class="ui-kpi-ic"><svg viewBox="0 0 24 24">${icon}</svg></div></div>
+    <div class="ui-kpi-v">${value}</div>
+    <div class="ui-kpi-s">${sub}</div>
   </div>`;
 }
 
