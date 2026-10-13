@@ -18,5 +18,7 @@ services:
         sync: false
       - key: S3_SECRET_KEY
         sync: false
-      - key: APP_PASSWORD     # login password for the dashboard (leave empty = no login)
+      - key: APP_PASSWORD     # leave EMPTY = anyone with the link can view the dashboard
+        sync: false
+      - key: ADMIN_PASSWORD   # optional: allows browser uploads; empty = uploads disabled
         sync: false

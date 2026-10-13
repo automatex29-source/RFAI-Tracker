@@ -807,22 +807,37 @@ app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_
 from fastapi import Request
 from fastapi.responses import JSONResponse as _JR
 
-APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
+APP_PASSWORD   = os.environ.get('APP_PASSWORD', '')    # set = whole site needs login
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # set = needed to upload data
+# On a public server (Render) browser uploads are blocked unless ADMIN_PASSWORD
+# is set, so visitors can view the dashboard but never replace the data.
+_ON_SERVER     = bool(os.environ.get('RENDER'))
+_ADMIN_PATHS   = ('/api/upload',)
+
+def _basic_pw(request):
+    import base64
+    h = request.headers.get('authorization', '')
+    if not h.startswith('Basic '): return None
+    try: return base64.b64decode(h[6:]).decode('utf-8', 'replace').split(':', 1)[1]
+    except Exception: return None
+
+def _pw_ok(given, expected):
+    import secrets
+    return given is not None and secrets.compare_digest(given.encode(), expected.encode())
 
 @app.middleware("http")
 async def _auth(request:Request,call_next):
-    """Optional HTTP Basic auth (any username) when APP_PASSWORD is set."""
-    if APP_PASSWORD and request.url.path != '/api/ping':
-        import base64, secrets
-        ok = False
-        h = request.headers.get('authorization', '')
-        if h.startswith('Basic '):
-            try:
-                pw = base64.b64decode(h[6:]).decode('utf-8', 'replace').split(':', 1)[1]
-                ok = secrets.compare_digest(pw.encode(), APP_PASSWORD.encode())
-            except Exception: ok = False
-        if not ok:
-            from fastapi.responses import Response
+    from fastapi.responses import Response
+    path = request.url.path
+    if path in _ADMIN_PATHS and (ADMIN_PASSWORD or _ON_SERVER):
+        if not ADMIN_PASSWORD:
+            return JSONResponse({"error":"Uploading is disabled on this public site. "
+                                 "Update data with BULK_CONVERT.bat instead."}, status_code=403)
+        if not _pw_ok(_basic_pw(request), ADMIN_PASSWORD):
+            return Response('Admin login required', status_code=401,
+                            headers={'WWW-Authenticate': 'Basic realm="RFAI admin"'})
+    elif APP_PASSWORD and path != '/api/ping':
+        if not _pw_ok(_basic_pw(request), APP_PASSWORD):
             return Response('Login required', status_code=401,
                             headers={'WWW-Authenticate': 'Basic realm="RFAI"'})
     return await call_next(request)

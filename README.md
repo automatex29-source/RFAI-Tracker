@@ -67,8 +67,14 @@ BULK_CONVERT.bat  D:\RFAI_raw_files
 - Needs free disk space of roughly 5–10% of the raw size for the `rfai_bulk_out` folder.
 
 ### 3. Point Render at the storage
-Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` (and `APP_PASSWORD`) in the
-Render service's **Environment** tab. After each new upload, click **↻ Reload stored data**
+Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render service's
+**Environment** tab.
+
+**Who can see it:**
+- `APP_PASSWORD` empty: **anyone with the link can view** the dashboard.
+- `APP_PASSWORD` set: viewers must log in (any username, that password).
+- Uploading through the browser is **disabled** on Render, so visitors can't replace your
+  data. Set `ADMIN_PASSWORD` if you want to upload from the browser yourself. After each new upload, click **↻ Reload stored data**
 on the start screen (or restart the service).
 
 Pending SRs' aging is recalculated against today's date every time the data loads,

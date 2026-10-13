@@ -7513,6 +7513,7 @@ async function _uploadToPython(files){
   try{
     const fd=new FormData();files.forEach(f=>fd.append('files',f));
     const r=await fetch(_B+'/api/upload',{method:'POST',body:fd});
+    if(r.status===401){_showUpErr('Admin password required to upload data.');return;}
     const j=await r.json();
     if(!j.ok){_showUpErr(j.error||'Upload failed');return;}
     _setProg(20,'Python processing '+j.count+' file(s)…','');
