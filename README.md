@@ -12,6 +12,28 @@ Keep all three files in the same folder and double-click `CONVERT_TO_PARQUET.bat
 
 Requirements: Python 3 with `pandas pyarrow openpyxl fastapi uvicorn python-multipart` (installed automatically by the .bat).
 
+## Run on your PC with SQL Server (office network)
+
+Data stays inside your own network, in your own SQL Server.
+
+1. Install **Python** from python.org and tick **"Add python.exe to PATH"** during setup.
+2. Download this repository (**Code → Download ZIP**) and unzip it, e.g. to `D:\RFAI`.
+3. Double-click **`CONVERT_TO_PARQUET.bat`**. The first run installs the libraries (a few minutes).
+   - If Windows asks whether to allow Python on the network, click **Allow** (private networks).
+4. The browser opens **http://localhost:8765**. Drop your Excel file in. The data is saved to
+   SQL Server in database **`RFAI`**, table **`dbo.rfai_data`** (each upload is logged in
+   `dbo.rfai_upload_log`), and loaded from there every time the tool starts.
+5. Colleagues on the same office network or VPN open **http://YOUR-PC-NAME:8765**. The black window
+   shows the exact link. Keep that window open while others use the tool.
+
+Settings are at the top of `CONVERT_TO_PARQUET.bat`:
+- `SQL_SERVER`: leave empty to auto-detect, or paste the **Server name** from the SSMS login window.
+- `ADMIN_PASSWORD`: the password needed to upload files. Viewing stays open on the network.
+- The tool uses Windows Authentication, so no database password is needed. For a SQL login, add
+  `set SQL_USER=...` and `set SQL_PASSWORD=...` instead.
+- If it says *"No SQL Server ODBC driver found"*, install **ODBC Driver 18 for SQL Server** (free,
+  from Microsoft) and run the .bat again.
+
 ## Large data (hundreds of GB / TB)
 
 Raw files are **never uploaded to Render**. You convert them on your own PC, which

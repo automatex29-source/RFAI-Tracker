@@ -638,6 +638,7 @@ def _process_files(file_infos):
     if errors: _job.message += ' (skipped: ' + ' | '.join(errors) + ')'
     log.info(_job.message)
     if S3_BUCKET: save_to_storage()
+    if SQL_ENABLED: save_to_sql()
     _job.running=False
 
 # ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
@@ -765,6 +766,163 @@ def save_to_storage():
         _job.message = f'Loaded, but saving to storage FAILED: {_s3_err(e)}'
         _storage_status['last_save'] = f'FAILED: {_s3_err(e)}'
 
+# ── SQL Server storage (local / office-network mode) ───────────────────────
+# Enable with USE_SQL_SERVER=1 (server auto-detected) or SQL_SERVER=<name>.
+# Windows Authentication by default; SQL_USER/SQL_PASSWORD for SQL logins.
+SQL_DATABASE = (os.environ.get('SQL_DATABASE') or 'RFAI').strip()
+SQL_ENABLED  = bool(os.environ.get('SQL_SERVER', '').strip()
+                    or os.environ.get('USE_SQL_SERVER', '').strip() in ('1', 'true', 'yes'))
+SQL_TABLE    = 'rfai_data'
+_sql_server  = {'name': os.environ.get('SQL_SERVER', '').strip() or None}
+
+def _sql_driver():
+    import pyodbc
+    have = pyodbc.drivers()
+    for d in ('ODBC Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server',
+              'ODBC Driver 13 for SQL Server', 'SQL Server Native Client 11.0', 'SQL Server'):
+        if d in have: return d
+    raise RuntimeError('No SQL Server ODBC driver found. Install "ODBC Driver 18 for SQL Server" '
+                       'from Microsoft (free), then restart.')
+
+def _sql_conn_str(server, database):
+    drv = _sql_driver()
+    cs = f'DRIVER={{{drv}}};SERVER={server};DATABASE={database};'
+    if os.environ.get('SQL_USER'):
+        cs += f"UID={os.environ['SQL_USER']};PWD={os.environ.get('SQL_PASSWORD', '')};"
+    else:
+        cs += 'Trusted_Connection=yes;'
+    if 'ODBC Driver' in drv: cs += 'TrustServerCertificate=yes;'
+    return cs
+
+def _sql_find_server():
+    """Use SQL_SERVER if given, else try the usual local instance names."""
+    import pyodbc
+    if _sql_server['name']: return _sql_server['name']
+    pc = os.environ.get('COMPUTERNAME', '')
+    tried = []
+    for cand in ('localhost', r'localhost\SQLEXPRESS', r'.\SQLEXPRESS', r'(localdb)\MSSQLLocalDB',
+                 pc, pc + r'\SQLEXPRESS'):
+        if not cand or cand in tried or cand.startswith('\\'): continue
+        tried.append(cand)
+        try:
+            pyodbc.connect(_sql_conn_str(cand, 'master'), timeout=3).close()
+            _sql_server['name'] = cand
+            log.info(f"  SQL Server found: {cand}")
+            return cand
+        except Exception:
+            continue
+    raise RuntimeError('Could not find SQL Server (tried ' + ', '.join(tried) +
+                       '). Set SQL_SERVER to the "Server name" shown in SSMS.')
+
+def _sql_connect(database=None, autocommit=False):
+    import pyodbc
+    return pyodbc.connect(_sql_conn_str(_sql_find_server(), database or SQL_DATABASE),
+                          timeout=10, autocommit=autocommit)
+
+def _sql_ensure_db():
+    c = _sql_connect('master', autocommit=True)
+    try:
+        c.execute(f"IF DB_ID(N'{SQL_DATABASE}') IS NULL CREATE DATABASE [{SQL_DATABASE}]")
+    finally:
+        c.close()
+
+def save_to_sql():
+    """Write the current (deduplicated) data to <SQL_DATABASE>.dbo.rfai_data.
+    Built in a side table and swapped in at the end, so a failure never
+    leaves the old data half-replaced. Each upload is also logged."""
+    df = _df_full_cache
+    if df is None: return
+    try:
+        _job.message = 'Saving to SQL Server…'
+        _sql_ensure_db()
+        cols = [c for c in OUT if c in df.columns]
+        ddl = ', '.join(f'[{c}] SMALLINT' if c in ('delay', 'priDays') else f'[{c}] NVARCHAR(400)'
+                        for c in cols)
+        data = []
+        for c in cols:
+            if c in ('delay', 'priDays'):
+                data.append([int(v) for v in pd.to_numeric(df[c], errors='coerce').fillna(-1)])
+            else:
+                data.append(df[c].astype(str).replace({'nan': '', 'None': ''}).tolist())
+        rows = list(zip(*data)); del data
+        con = _sql_connect()
+        try:
+            cur = con.cursor(); cur.fast_executemany = True
+            cur.execute(f"IF OBJECT_ID('dbo.{SQL_TABLE}_new') IS NOT NULL DROP TABLE dbo.{SQL_TABLE}_new")
+            cur.execute(f"CREATE TABLE dbo.{SQL_TABLE}_new ({ddl})")
+            ins = (f"INSERT INTO dbo.{SQL_TABLE}_new ({', '.join(f'[{c}]' for c in cols)}) "
+                   f"VALUES ({', '.join('?' * len(cols))})")
+            for i in range(0, len(rows), 5000):
+                cur.executemany(ins, rows[i:i + 5000])
+            cur.execute(f"IF OBJECT_ID('dbo.{SQL_TABLE}') IS NOT NULL DROP TABLE dbo.{SQL_TABLE}")
+            cur.execute(f"EXEC sp_rename 'dbo.{SQL_TABLE}_new', '{SQL_TABLE}'")
+            cur.execute("IF OBJECT_ID('dbo.rfai_upload_log') IS NULL CREATE TABLE dbo.rfai_upload_log "
+                        "(uploaded_at DATETIME2 DEFAULT SYSDATETIME(), srs INT, files NVARCHAR(1000))")
+            cur.execute("INSERT INTO dbo.rfai_upload_log (srs, files) VALUES (?, ?)",
+                        len(rows), ', '.join(s_['name'] for s_ in _job.file_stats)[:1000])
+            con.commit()
+        finally:
+            con.close()
+        _storage_status['last_save'] = (f'ok: {len(rows):,} SRs → SQL Server '
+                                        f'{_sql_server["name"]}/{SQL_DATABASE} at {datetime.now():%d-%b %H:%M}')
+        _job.message = f'✓ Saved {len(rows):,} SRs to SQL Server'
+        log.info('  ' + _storage_status['last_save'])
+    except Exception as e:
+        log.error(f"  Save to SQL Server failed: {e}")
+        _storage_status['last_save'] = f'FAILED (SQL Server): {e}'
+        _job.message = f'Loaded, but saving to SQL Server FAILED: {e}'
+
+def _load_from_sql(force=False):
+    """Read dbo.rfai_data into the cache (skipped if unchanged since last load)."""
+    global _df_cache, _df_full_cache, _dash_cache
+    _job.message = 'Connecting to SQL Server…'
+    _sql_ensure_db()
+    con = _sql_connect()
+    try:
+        cur = con.cursor()
+        if not cur.execute(f"SELECT OBJECT_ID('dbo.{SQL_TABLE}')").fetchone()[0]:
+            _storage_status['last_load'] = f'SQL Server {_sql_server["name"]}/{SQL_DATABASE}: no data yet'
+            _job.message = 'No stored data yet'; _job.done = True; return
+        try:
+            sig = tuple(cur.execute("SELECT COUNT(*), MAX(uploaded_at) FROM dbo.rfai_upload_log").fetchone())
+        except Exception:
+            sig = None
+        if sig and _df_cache is not None and _loaded_sig.get('sql') == sig:
+            _job.message = f'✓ Already up to date — {len(_df_cache):,} SRs'; _job.done = True; return
+        cols = [r[0] for r in cur.execute(
+            "SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(?) ORDER BY column_id",
+            f'dbo.{SQL_TABLE}').fetchall() if r[0] in OUT]
+        _job.message = 'Reading data from SQL Server…'
+        cur.execute(f"SELECT {', '.join(f'[{c}]' for c in cols)} FROM dbo.{SQL_TABLE}")
+        batches = []
+        while True:
+            chunk = cur.fetchmany(50000)
+            if not chunk: break
+            arrays = {}
+            for i, c in enumerate(cols):
+                vals = [r[i] for r in chunk]
+                arrays[c] = (pa.array([v if v is not None else -1 for v in vals], type=pa.int16())
+                             if c in ('delay', 'priDays')
+                             else pa.array([v or '' for v in vals], type=pa.string()))
+            batches.append(pa.table(arrays))
+    finally:
+        con.close()
+    for f in _cache_dir.glob('*.parquet'): f.unlink()
+    if batches:
+        # 'rfai_dedup' prefix: data in SQL is already one row per SR
+        pq.write_table(pa.concat_tables(batches), str(_cache_dir / 'rfai_dedup_sql.parquet'),
+                       compression='zstd')
+    n_rows = sum(b.num_rows for b in batches); del batches
+    _storage_status['last_load'] = (f'SQL Server {_sql_server["name"]}/{SQL_DATABASE}: '
+                                    f'{n_rows:,} SRs')
+    _df_cache = _df_full_cache = _dash_cache = None; gc.collect()
+    if n_rows: _build_caches()
+    _loaded_sig['sql'] = sig
+    n = len(_df_cache) if _df_cache is not None else 0
+    _job.rows_processed = _job.rows_kept = n
+    _job.message = f'✓ Loaded {n:,} SRs from SQL Server' if n else 'No stored data yet'
+    _job.done = True
+
 _loaded_sig = {}
 _RAW_EXTS = ('.xlsx', '.xlsm', '.xls', '.xlsb', '.ods', '.csv')
 
@@ -793,6 +951,8 @@ def load_stored_data(retries=1, force=False):
 def _load_once(force=False):
     global _df_cache, _df_full_cache, _dash_cache
     _cache_dir.mkdir(parents=True, exist_ok=True)
+    if SQL_ENABLED and not S3_BUCKET:
+        _load_from_sql(force); return
     if S3_BUCKET:
         _job.message = 'Checking storage…'
         s3 = _s3(); objs = []
@@ -1196,7 +1356,9 @@ def config():
     """Non-secret setup status, shown on the start screen."""
     env_names = sorted(k for k in os.environ if 'PASS' in k.upper())
     return {"upload_enabled": bool(ADMIN_PASSWORD) or not _ON_SERVER,
-            "storage_configured": bool(S3_BUCKET),
+            "storage_configured": bool(S3_BUCKET) or SQL_ENABLED,
+            "sql_server": ({"server": _sql_server['name'], "database": SQL_DATABASE}
+                           if SQL_ENABLED else None),
             "password_like_vars": env_names,
             "data_loaded": _df_cache is not None,
             "srs_loaded": len(_df_cache) if _df_cache is not None else 0,
