@@ -517,6 +517,91 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
 /* ── RATE EDIT HIGHLIGHT ── */
 .rate-inp{transition:all .15s}
 .fin-rates-card{position:relative}
+
+/* ════════════ HOME PAGE ════════════ */
+#home-panel{padding:22px 24px 40px;max-width:1360px;margin:0 auto}
+.hm-hero{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:18px;
+  background:linear-gradient(135deg,#1a1a2e 0%,#2b1a3a 55%,#7a0010 100%);color:#fff;border-radius:18px;
+  padding:26px 28px;box-shadow:0 6px 28px rgba(26,26,46,.18)}
+.hm-eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.7}
+.hm-title{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:6px 0 8px;line-height:1.2}
+.hm-fresh{font-size:12.5px;opacity:.85;display:flex;flex-wrap:wrap;gap:6px 14px}
+.hm-fresh b{font-weight:700}
+.hm-search{display:flex;gap:8px;flex:1 1 320px;max-width:460px}
+.hm-search input{flex:1;min-width:0;border:none;border-radius:10px;padding:12px 14px;font:inherit;font-size:14px;
+  color:var(--tx);background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.hm-search input:focus{outline:3px solid rgba(255,255,255,.35)}
+.hm-search button{border:none;border-radius:10px;padding:0 18px;font:inherit;font-weight:700;font-size:13px;
+  background:var(--ac);color:#fff;cursor:pointer}
+.hm-search button:hover{background:var(--ac-hv)}
+.hm-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0}
+.hm-kpi{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:14px 16px;cursor:pointer;
+  text-align:left;font:inherit;color:inherit;transition:transform .12s,box-shadow .12s;position:relative;overflow:hidden}
+.hm-kpi:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.hm-kpi:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.hm-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--k,#94a3b8)}
+.hm-kpi .lb{font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:6px}
+.hm-kpi .lb i{width:8px;height:8px;border-radius:50%;background:var(--k,#94a3b8);display:inline-block}
+.hm-kpi .v{font-size:26px;font-weight:800;color:var(--tx);margin:6px 0 2px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.hm-kpi .s{font-size:11.5px;color:var(--tx3)}
+.hm-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px}
+@media(max-width:960px){.hm-grid{grid-template-columns:1fr}}
+.hm-card{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:16px 18px}
+.hm-card h2,.hm-sec{font-size:13px;font-weight:800;color:var(--tx);margin:0 0 4px;letter-spacing:.01em}
+.hm-card .sub{font-size:11.5px;color:var(--tx3);margin-bottom:12px}
+.hm-card h2+.sub{margin-top:0}
+.hm-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;color:var(--tx2);margin-bottom:10px}
+.hm-legend span{display:inline-flex;align-items:center;gap:6px}
+.hm-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.hm-row{display:grid;grid-template-columns:64px 1fr 64px;align-items:center;gap:10px;padding:4px 0;font-size:12px}
+.hm-row .k{color:var(--tx2);font-weight:600;font-variant-numeric:tabular-nums}
+.hm-row .n{text-align:right;color:var(--tx);font-weight:700;font-variant-numeric:tabular-nums}
+.hm-bar{display:flex;gap:2px;height:16px;background:transparent}
+.hm-bar>span{height:100%;min-width:0;border-radius:2px}
+.hm-bar>span:first-child{border-radius:4px 2px 2px 4px}.hm-bar>span:last-child{border-radius:2px 4px 4px 2px}
+.hm-bar>span:only-child{border-radius:4px}
+.hm-bar>span:hover{filter:brightness(1.12)}
+.hm-hrow{display:grid;grid-template-columns:90px 1fr 56px;align-items:center;gap:10px;padding:5px 0;font-size:12px;cursor:pointer;border-radius:6px}
+.hm-hrow:hover{background:var(--surf2)}
+.hm-hrow .t{height:12px;background:var(--surf2);border-radius:4px;overflow:hidden}
+.hm-hrow .t span{display:block;height:100%;border-radius:0 4px 4px 0}
+.hm-hrow .k{color:var(--tx2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-hrow .n{text-align:right;font-weight:700;color:var(--tx);font-variant-numeric:tabular-nums}
+.hm-tabletoggle{background:none;border:1px solid var(--bdr);border-radius:6px;font:inherit;font-size:11px;color:var(--tx2);
+  padding:3px 8px;cursor:pointer;float:right}
+.hm-tbl{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.hm-tbl th,.hm-tbl td{padding:5px 8px;border-bottom:1px solid var(--bdr);text-align:right}
+.hm-tbl th:first-child,.hm-tbl td:first-child{text-align:left}
+.hm-tbl th{color:var(--tx2);font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+.hm-sec{font-size:15px;margin:24px 0 10px}
+.hm-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:960px){.hm-nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.hm-nav{grid-template-columns:1fr}}
+.hm-navc{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:16px 18px;cursor:pointer;text-align:left;
+  font:inherit;color:inherit;display:flex;flex-direction:column;gap:6px;transition:transform .12s,box-shadow .12s,border-color .12s}
+.hm-navc:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.08);border-color:var(--bdr2)}
+.hm-navc:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.hm-navc .ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--c-bg,#f1f5f9)}
+.hm-navc .ic svg{width:20px;height:20px;fill:none;stroke:var(--c,#334155);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hm-navc .t{font-size:14.5px;font-weight:800;color:var(--tx)}
+.hm-navc .d{font-size:12px;color:var(--tx2);line-height:1.45}
+.hm-navc .m{font-size:11.5px;color:var(--tx3);margin-top:auto;padding-top:6px;font-weight:600}
+.hm-navc .m b{color:var(--tx)}
+.hm-empty{padding:30px;text-align:center;color:var(--tx3);font-size:13px}
+#hm-tip{position:fixed;z-index:9999;pointer-events:none;background:#0d1117;color:#fff;font-size:11.5px;padding:7px 10px;
+  border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;max-width:260px;line-height:1.45}
+#hm-tip b{font-weight:700}
+#up-back{display:none;margin-bottom:16px;background:none;border:1px solid var(--bdr);border-radius:8px;padding:6px 12px;
+  font:inherit;font-size:12px;font-weight:700;color:var(--tx2);cursor:pointer}
+#up-back:hover{background:var(--surf2)}
+#up-loading{display:flex;align-items:center;gap:10px;justify-content:center;padding:34px 0;color:var(--tx2);font-size:13.5px;font-weight:600}
+#up-loading::before{content:"";width:18px;height:18px;border:3px solid #e2e8f0;border-top-color:var(--ac);border-radius:50%;animation:spin .9s linear infinite}
+@media(max-width:640px){#home-panel{padding:14px 16px 32px}.hm-title{font-size:21px}.hm-hero{padding:20px}
+  .tbar{padding:0 12px}.tbar .lsb,#sqlBtn,#duckdb-badge,#expBtn{display:none!important}
+  .trr{gap:6px;min-width:0}#fchp{min-width:0;overflow:hidden}.fchp{max-width:46vw}
+  .tabbar{padding:0 8px;overflow-x:auto;scrollbar-width:none}.tabbar::-webkit-scrollbar{display:none}.tab{padding:11px 12px;white-space:nowrap;flex-shrink:0}
+  .hm-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+html,body{overflow-x:hidden}
 </style>
 </head>
 <body>
@@ -528,9 +613,9 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
   </div>
   <div class="trr">
     <div id="fchp" style="display:none"></div>
-    <button class="btn" id="chgBtn" style="display:none" onclick="resetApp()">
+    <button class="btn" id="chgBtn" style="display:none" onclick="hmUpdateData()" title="Upload new data (replaces the current data for everyone)">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Change File
+      Update data
     </button>
     <button class="btn btnp" id="expBtn" style="display:none" onclick="exportCSV()">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -656,6 +741,7 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
 
 <div id="upZone" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#f8f9fc 0%,#f0f2f6 100%)">
   <div style="background:#fff;border-radius:20px;box-shadow:0 8px 48px rgba(0,0,0,.1),0 2px 8px rgba(0,0,0,.06);padding:44px 48px;width:520px;max-width:calc(100vw - 32px);border:1px solid #e4e7ef">
+    <button id="up-back" onclick="hmBackFromUpload()">← Back to the dashboard</button>
     <div style="display:flex;align-items:center;gap:13px;margin-bottom:28px">
       <div style="width:46px;height:46px;background:linear-gradient(135deg,#b30000,#e40000);border-radius:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 16px rgba(228,0,0,.3)">
         <svg viewBox="0 0 24 24" style="width:22px;height:22px;fill:none;stroke:#fff;stroke-width:2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -670,10 +756,11 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
       <span id="srv-txt" style="color:#991b1b">Checking Python server…</span>
       <button onclick="_reloadStored()" title="Reload the latest data from cloud storage" style="margin-left:auto;padding:3px 10px;font-size:11px;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#334155;cursor:pointer">↻ Reload stored data</button>
     </div>
+    <div id="up-loading">Loading latest data…</div>
     <div id="dropzone" ondragover="event.preventDefault();this.classList.add('dg')" ondragleave="this.classList.remove('dg')"
       ondrop="event.preventDefault();this.classList.remove('dg');handleDrop(event)"
       onclick="document.getElementById('fin').click()"
-      style="border:2.5px dashed #cbd5e1;border-radius:14px;padding:40px 24px;text-align:center;cursor:pointer;transition:all .2s;background:#f8fafc">
+      style="display:none;border:2.5px dashed #cbd5e1;border-radius:14px;padding:40px 24px;text-align:center;cursor:pointer;transition:all .2s;background:#f8fafc">
       <svg viewBox="0 0 24 24" style="width:44px;height:44px;stroke:#94a3b8;stroke-width:1.5;fill:none;margin:0 auto 14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <div style="font-size:16px;font-weight:700;color:#334155;margin-bottom:6px">Drop your Excel or CSV files here</div>
       <div style="font-size:12.5px;color:#94a3b8;margin-bottom:16px">or click to browse · multiple files supported</div>
@@ -705,7 +792,7 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
       </div>
     </div>
     <div id="up-error" style="display:none;margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12.5px;color:#dc2626;font-weight:600"></div>
-    <div style="margin-top:18px;text-align:center;font-size:11.5px;color:#94a3b8">
+    <div id="up-hint" style="display:none;margin-top:18px;text-align:center;font-size:11.5px;color:#94a3b8">
       Run <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px">CONVERT_TO_PARQUET.bat</code> once to start Python
     </div>
   </div>
@@ -714,7 +801,11 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
 <div id="app">
   <!-- TAB BAR -->
   <div class="tabbar" id="tabbar">
-    <button class="tab active" id="tab-table" onclick="switchTab('table')">
+    <button class="tab active" id="tab-home" onclick="switchTab('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>
+      Home
+    </button>
+    <button class="tab" id="tab-table" onclick="switchTab('table')">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
       Journey Table
     </button>
@@ -740,6 +831,41 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
 
 
 
+
+  <!-- HOME PANEL -->
+  <div id="home-panel" style="display:none">
+    <section class="hm-hero">
+      <div>
+        <div class="hm-eyebrow">RFAI · PRI · OnAir</div>
+        <h1 class="hm-title">Rollout status at a glance</h1>
+        <div class="hm-fresh" id="hm-fresh">Loading latest data…</div>
+      </div>
+      <form class="hm-search" onsubmit="hmSearch(event)" role="search">
+        <input id="hm-q" type="search" placeholder="Find an SR # or Site ID…" aria-label="Find an SR number or site ID" autocomplete="off">
+        <button type="submit">Search</button>
+      </form>
+    </section>
+    <section class="hm-kpis" id="hm-kpis" aria-label="Key numbers"></section>
+    <div class="hm-grid">
+      <section class="hm-card">
+        <button class="hm-tabletoggle" onclick="hmToggleTable('hm-months')">Table</button>
+        <h2>Status by month</h2>
+        <div class="sub">SRs per exit month (OnAir month for live sites, RFAI month otherwise) — hover a bar for numbers</div>
+        <div id="hm-months"></div>
+      </section>
+      <section class="hm-card">
+        <h2>Pending ageing</h2>
+        <div class="sub">Days since Final RFAI for SRs not yet OnAir (PRI days excluded)</div>
+        <div id="hm-aging"></div>
+        <h2 style="margin-top:18px">Circles with most pending &gt;30 days</h2>
+        <div class="sub">Click a circle to open its SRs</div>
+        <div id="hm-circles"></div>
+      </section>
+    </div>
+    <h2 class="hm-sec">Explore</h2>
+    <section class="hm-nav" id="hm-nav"></section>
+  </div>
+  <div id="hm-tip" role="tooltip"></div>
 
   <!-- DASHBOARD PANEL -->
   <div id="dash">
@@ -3153,6 +3279,7 @@ function resetApp(){
   const fm=document.getElementById('fMonth');
   if(fm){fm.innerHTML='<option value="">All Months</option>';fm.value='';}
   document.getElementById('upZone').style.display='flex';
+  _showDropzone();
   document.getElementById('tabbar').style.display='none';
   document.getElementById('app').style.display='none';
   document.getElementById('chgBtn').style.display='none';
@@ -3893,10 +4020,12 @@ function _doExport(){
 // ═══════════════════════════════════════════════
 // TAB SWITCHING
 // ═══════════════════════════════════════════════
-let _activeTab='table';
+let _activeTab='home';
 const _charts={};
 function switchTab(tab){
   _activeTab=tab;
+  const th=document.getElementById('tab-home'); if(th) th.classList.toggle('active',tab==='home');
+  const hp=document.getElementById('home-panel'); if(hp) hp.style.display=tab==='home'?'block':'none';
   document.getElementById('tab-table').classList.toggle('active',tab==='table');
   document.getElementById('tab-dash').classList.toggle('active',tab==='dash');
   document.getElementById('tab-finimpact').classList.toggle('active',tab==='finimpact');
@@ -3910,6 +4039,8 @@ function switchTab(tab){
   if(tab==='fin')   _renderFinFromPython();
   if(tab==='mgmt')  { _mgRender(); }
   if(tab==='finimpact') renderFinImpact();
+  if(tab==='home') renderHome();
+  window.scrollTo(0,0);
 }
 
 /* ── INLINE OnAir DATE EDITOR ── */
@@ -7496,6 +7627,7 @@ async function _checkServer(){
   }catch(e){
     if(dot)dot.style.background='#ef4444';
     if(txt){txt.style.color='#991b1b';txt.textContent='⚠ Cannot connect — run CONVERT_TO_PARQUET.bat then refresh this page';}
+    _showDropzone(true);
     if(badge){badge.style.background='#fef2f2';badge.style.borderColor='#fca5a5';}
   }
 }
@@ -7508,10 +7640,11 @@ async function _autoLoadStored(){
     if(p.running){ if(txt)txt.textContent='⏳ '+(p.message||'Loading stored data…'); setTimeout(_autoLoadStored,700); return; }
     if(p.error&&txt){ txt.textContent='⚠ '+p.error; txt.style.color='#991b1b'; }
     else if(p.message&&txt&&/up to date|Loaded/.test(p.message)) txt.textContent=p.message;
-    const r=await fetch(_B+'/api/summary'); if(!r.ok) return;
+    const r=await fetch(_B+'/api/summary'); if(!r.ok){ _showDropzone(); return; }
     const j=await r.json();
+    if(j.error||!j.total){ _showDropzone(); return; }
     if(!j.error&&j.total){ if(txt)txt.textContent='✓ Stored data loaded — '+j.total.toLocaleString()+' SRs (drop files to replace)'; _loadDashboard(); }
-  }catch(e){}
+  }catch(e){ _showDropzone(); }
 }
 async function _reloadStored(){
   const txt=document.getElementById('srv-txt'); if(txt) txt.textContent='⏳ Checking storage…';
@@ -7586,6 +7719,169 @@ function _doPoll(){
       else if(j.running)_doPoll();
     }catch(e){_doPoll();}
   },500);
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// HOME PAGE — landing view for every visitor
+// ══════════════════════════════════════════════════════════════
+let _hmDash=null;
+const HM_ST=[  // status order + colours (status palette, always shown with labels)
+  {k:'OnAir',l:'OnAir',c:'#0d9e5c'},
+  {k:'OnAir Pending',l:'OnAir Pending',c:'#d97706'},
+  {k:'Open PRI',l:'Open PRI',c:'#2563eb'},
+  {k:'Rejected RFAI',l:'Rejected RFAI',c:'#dc2626'},
+  {k:'RFAI Pending',l:'RFAI Pending',c:'#64748b'},
+];
+const HM_AGE=[['0-30','0–30 days','#fcd9a6'],['30-60','31–60 days','#f5a742'],['60-90','61–90 days','#d97706'],['>90','90+ days','#92400e']];
+function _hmEsc(x){return String(x==null?'':x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _hmN(n){return (n||0).toLocaleString();}
+function _showDropzone(serverDown){
+  const dz=document.getElementById('dropzone'),ld=document.getElementById('up-loading'),h=document.getElementById('up-hint');
+  if(dz) dz.style.display='block'; if(ld) ld.style.display='none';
+  if(h) h.style.display=serverDown?'block':'none';
+}
+function hmUpdateData(){
+  document.getElementById('app').style.display='none';
+  document.getElementById('tabbar').style.display='none';
+  document.getElementById('upZone').style.display='flex';
+  const ub=document.getElementById('up-back'); if(ub) ub.style.display='inline-block';
+  _showDropzone(); window.scrollTo(0,0);
+}
+function hmBackFromUpload(){
+  document.getElementById('upZone').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('tabbar').style.display='flex';
+  switchTab('home');
+}
+function hmFilterTable(opt){
+  opt=opt||{};
+  const DEF={fCircle:'All Circles',fCat:'All Categories',fProj:'All Projects',fToco:'All ToCo',fDomain:'All Domains',fOEM:'All OEMs',fStat:'All Statuses',fMonth:'All Months'};
+  Object.keys(DEF).forEach(id=>{ if(_msState[id]) _msState[id].clear(); });
+  if(opt.status){ _msState['fStat']=_msState['fStat']||new Set(); _msState['fStat'].add(opt.status); }
+  if(opt.circle){ _msState['fCircle']=_msState['fCircle']||new Set(); _msState['fCircle'].add(opt.circle); }
+  Object.keys(DEF).forEach(id=>{ if(_msItems&&_msItems[id]) _buildMsList(id,_msItems[id]); _updateMsBtn(id,DEF[id]); });
+  const q=document.getElementById('fSrch'); if(q) q.value=opt.search||'';
+  switchTab('table'); af(true);
+}
+function hmSearch(e){
+  if(e) e.preventDefault();
+  const v=(document.getElementById('hm-q').value||'').trim();
+  hmFilterTable({search:v});
+}
+function hmToggleTable(id){
+  const el=document.getElementById(id); if(!el) return;
+  el.dataset.view=el.dataset.view==='table'?'chart':'table'; _hmRenderMonths();
+}
+function _hmTip(e,html){
+  const t=document.getElementById('hm-tip'); if(!t) return;
+  if(!html){t.style.display='none';return;}
+  t.innerHTML=html; t.style.display='block';
+  const x=Math.min(e.clientX+14,window.innerWidth-t.offsetWidth-8), y=Math.min(e.clientY+14,window.innerHeight-t.offsetHeight-8);
+  t.style.left=x+'px'; t.style.top=y+'px';
+}
+async function renderHome(){
+  const info=window._hmInfo||{};
+  const fr=document.getElementById('hm-fresh');
+  if(fr){
+    const files=(info.files||[]).join(', ');
+    fr.innerHTML='<span><b>'+_hmN(info.total)+'</b> SRs</span>'
+      +(files?'<span>Source: <b>'+_hmEsc(files)+'</b></span>':'')
+      +(info.uploaded_at?'<span>Updated: <b>'+_hmEsc(info.uploaded_at)+'</b></span>':'');
+  }
+  if(!_hmDash){
+    try{ const r=await fetch(_B+'/api/dashboard'); _hmDash=await r.json(); }
+    catch(e){ _hmDash=null; }
+  }
+  const j=_hmDash||{};
+  if(!j.total){
+    document.getElementById('hm-kpis').innerHTML='<div class="hm-empty">No data loaded yet.</div>';
+    _hmRenderNav(j); return;
+  }
+  _hmRenderKpis(j); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
+}
+function _hmPend30(ab){ab=ab||{};return (ab['30-60']||0)+(ab['60-90']||0)+(ab['>90']||0);}
+function _hmRenderKpis(j){
+  const s=j.statuses||{}, tot=j.total||0, pct=v=>tot?Math.round(v/tot*100):0;
+  const p30=_hmPend30(j.pendAgingBuckets);
+  const pendTot=(s['OnAir Pending']||0)+(s['Open PRI']||0)+(s['RFAI Pending']||0);
+  const avgOa=j.avgOaDelay!=null?j.avgOaDelay:j.avgDelay;
+  const K=[
+    {l:'Total SRs',v:_hmN(tot),s:'unique SRs with an RFAI date',c:'#1a1a2e',go:"hmFilterTable({})"},
+    {l:'OnAir',v:_hmN(s['OnAir']),s:pct(s['OnAir']||0)+'% of total',c:'#0d9e5c',go:"hmFilterTable({status:'OnAir'})"},
+    {l:'OnAir Pending',v:_hmN(s['OnAir Pending']),s:pct(s['OnAir Pending']||0)+'% of total',c:'#d97706',go:"hmFilterTable({status:'OnAir Pending'})"},
+    {l:'Pending >30 days',v:_hmN(p30),s:(pendTot?Math.round(p30/pendTot*100):0)+'% of all pending',c:'#92400e',go:"switchTab('mgmt');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)"},
+    {l:'Open PRI',v:_hmN(s['Open PRI']),s:'PRI blocking OnAir',c:'#2563eb',go:"hmFilterTable({status:'Open PRI'})"},
+    {l:'Rejected RFAI',v:_hmN(s['Rejected RFAI']),s:'re-offer needed',c:'#dc2626',go:"hmFilterTable({status:'Rejected RFAI'})"},
+    {l:'Avg RFAI → OnAir',v:avgOa!=null?avgOa+' days':'—',s:'Final RFAI to OnAir, PRI excluded',c:'#475569',go:"switchTab('dash')"},
+  ];
+  document.getElementById('hm-kpis').innerHTML=K.map(k=>
+    '<button class="hm-kpi" style="--k:'+k.c+'" onclick="'+k.go+'"><div class="lb"><i></i>'+k.l+'</div><div class="v">'+k.v+'</div><div class="s">'+k.s+'</div></button>').join('');
+}
+function _hmRenderMonths(){
+  const el=document.getElementById('hm-months'); if(!el) return;
+  const j=_hmDash||{}; let months=(j.byMonth||[]).slice();
+  try{ months.sort((a,b)=>sortMK(a.mk)-sortMK(b.mk)); }catch(e){}
+  months=months.slice(-12);
+  if(!months.length){el.innerHTML='<div class="hm-empty">No monthly data.</div>';return;}
+  if(el.dataset.view==='table'){
+    el.innerHTML='<table class="hm-tbl"><thead><tr><th>Month</th>'+HM_ST.map(x=>'<th>'+x.l+'</th>').join('')+'<th>Total</th></tr></thead><tbody>'+
+      months.map(m=>{const st=m.statuses||{};return '<tr><td>'+_hmEsc(m.mk)+'</td>'+HM_ST.map(x=>'<td>'+_hmN(st[x.k])+'</td>').join('')+'<td><b>'+_hmN(m.total)+'</b></td></tr>';}).join('')+'</tbody></table>';
+    return;
+  }
+  const max=Math.max(...months.map(m=>m.total||0),1);
+  el.innerHTML='<div class="hm-legend">'+HM_ST.map(x=>'<span><i style="background:'+x.c+'"></i>'+x.l+'</span>').join('')+'</div>'+
+    months.map(m=>{
+      const st=m.statuses||{}, w=(m.total||0)/max*100;
+      const segs=HM_ST.filter(x=>st[x.k]).map(x=>{
+        const tip='<b>'+_hmEsc(m.mk)+' · '+x.l+'</b><br>'+_hmN(st[x.k])+' SRs ('+Math.round(st[x.k]/m.total*100)+'%)';
+        return '<span style="flex:'+st[x.k]+' 1 0;background:'+x.c+'" data-tip="'+_hmEsc(tip)+'"></span>';}).join('');
+      return '<div class="hm-row"><span class="k">'+_hmEsc(m.mk)+'</span><div class="hm-bar" style="width:'+Math.max(w,1)+'%">'+segs+'</div><span class="n">'+_hmN(m.total)+'</span></div>';
+    }).join('');
+  el.querySelectorAll('[data-tip]').forEach(sp=>{
+    sp.addEventListener('mousemove',e=>_hmTip(e,sp.getAttribute('data-tip')));
+    sp.addEventListener('mouseleave',e=>_hmTip(e,null));
+  });
+}
+function _hmRenderAging(j){
+  const el=document.getElementById('hm-aging'); if(!el) return;
+  const ab=j.pendAgingBuckets||{}, max=Math.max(...HM_AGE.map(a=>ab[a[0]]||0),1);
+  el.innerHTML=HM_AGE.map(a=>{
+    const v=ab[a[0]]||0;
+    return '<div class="hm-hrow" onclick="switchTab(\'mgmt\');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)" title="'+_hmN(v)+' pending SRs aged '+a[1]+'">'+
+      '<span class="k">'+a[1]+'</span><div class="t"><span style="width:'+(v/max*100)+'%;background:'+a[2]+'"></span></div><span class="n">'+_hmN(v)+'</span></div>';
+  }).join('')+(j.avgDelayPending!=null?'<div class="sub" style="margin:8px 0 0">Average pending age: <b style="color:var(--tx)">'+j.avgDelayPending+' days</b></div>':'');
+}
+function _hmRenderCircles(j){
+  const el=document.getElementById('hm-circles'); if(!el) return;
+  const rows=(j.byCircle||[]).map(c=>({c:c.circle,v:_hmPend30(c.agingBreakdown)})).filter(r=>r.v>0).sort((a,b)=>b.v-a.v).slice(0,8);
+  if(!rows.length){el.innerHTML='<div class="sub">No SRs pending more than 30 days. 🎉</div>';return;}
+  const max=rows[0].v;
+  el.innerHTML=rows.map(r=>'<div class="hm-hrow" data-c="'+_hmEsc(r.c)+'" onclick="hmFilterTable({circle:this.dataset.c})" title="Open '+_hmEsc(r.c)+' SRs">'+
+    '<span class="k">'+_hmEsc(r.c)+'</span><div class="t"><span style="width:'+(r.v/max*100)+'%;background:#d97706"></span></div><span class="n">'+_hmN(r.v)+'</span></div>').join('');
+}
+function _hmRenderNav(j){
+  const s=(j&&j.statuses)||{}, tot=(j&&j.total)||0;
+  const months=((j&&j.byMonth)||[]).length, circles=((j&&j.byCircle)||[]).length;
+  const I={
+    table:'<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+    dash:'<rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/>',
+    mgmt:'<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+    fin:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    pri:'<circle cx="12" cy="12" r="9"/><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12" y2="16.6"/>',
+    up:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  };
+  const C=[
+    {t:'Journey Table',d:'Every SR with its RFAI, rejection, PRI and OnAir dates, and its status month by month.',m:'<b>'+_hmN(tot)+'</b> SRs · search, filter, export',ic:I.table,c:'#1e40af',bg:'#eff6ff',go:"hmFilterTable({})"},
+    {t:'Dashboard',d:'Charts of status, ageing and delay by month, circle, OEM and category.',m:'<b>'+months+'</b> months · <b>'+circles+'</b> circles',ic:I.dash,c:'#0d9e5c',bg:'#ecfdf5',go:"switchTab('dash')"},
+    {t:'Management View',d:'Month, circle and category summaries: pending ageing and OnAir delay tables.',m:'Ready-made tables for reviews',ic:I.mgmt,c:'#7c3aed',bg:'#f5f3ff',go:"switchTab('mgmt')"},
+    {t:'Open PRI',d:'SRs where a Post-RFAI Issue is still open and blocking OnAir.',m:'<b>'+_hmN(s['Open PRI'])+'</b> SRs with open PRI',ic:I.pri,c:'#2563eb',bg:'#eff6ff',go:"hmFilterTable({status:'Open PRI'})"},
+    {t:'Financial Impact',d:'Cost of pending SRs and of OnAir delays, by circle and category.',m:'Editable daily rates',ic:I.fin,c:'#b45309',bg:'#fffbeb',go:"switchTab('finimpact')"},
+    {t:'Update data',d:'Upload the latest Excel or CSV. It replaces the current data for everyone.',m:'Upload password required',ic:I.up,c:'#e40000',bg:'#fff0f0',go:"hmUpdateData()"},
+  ];
+  document.getElementById('hm-nav').innerHTML=C.map(x=>
+    '<button class="hm-navc" style="--c:'+x.c+';--c-bg:'+x.bg+'" onclick="'+x.go+'"><span class="ic"><svg viewBox="0 0 24 24">'+x.ic+'</svg></span>'+
+    '<span class="t">'+x.t+'</span><span class="d">'+x.d+'</span><span class="m">'+x.m+'</span></button>').join('');
 }
 
 // Parse DD-Mon-YYYY string → Date object (fast, no regex)
@@ -7714,6 +8010,12 @@ async function _loadDashboard(){
 
     // ── Auto-render OnAir Pending tab ─────────────────────────────────────
     setTimeout(function(){ _initOapTabFilters(); renderOapTab(); }, 300);
+
+    // ── Land on the Home page ─────────────────────────────────────────────
+    window._hmInfo=Object.assign({},j.data_info||{},{total:tot});
+    _hmDash=null;
+    const ub=document.getElementById('up-back'); if(ub) ub.style.display='none';
+    switchTab('home');
 
   }catch(e){_showUpErr('Load error: '+e.message);console.error(e);}
 }
