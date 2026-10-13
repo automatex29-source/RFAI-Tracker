@@ -397,7 +397,7 @@ tbody tr:hover{background:#fff8f8!important}
 .toast.show{transform:translateY(0);opacity:1}
 .tico{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
 .ts{background:var(--gn-bg);color:var(--gn)}.te{background:var(--rd-bg);color:var(--rd)}
-.fchp{font-family:var(--mn);font-size:11px;color:var(--tx2);background:var(--surf2);border:1px solid var(--bdr);border-radius:20px;padding:4px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fchp{font-family:var(--mn);font-size:11px;color:var(--tx2);background:var(--surf2);border:1px solid var(--bdr);border-radius:20px;padding:4px 10px;max-width:min(440px,40vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* info banner */
 .infobanner{background:#eff6ff;border-left:3px solid var(--ac);padding:9px 16px;font-size:12px;color:#1e40af;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .infobanner strong{font-weight:700}
@@ -7664,7 +7664,16 @@ async function _loadDashboard(){
     document.getElementById('tabbar').style.display='flex';
     ['tablePanel','tfoot','chgBtn','expBtn'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='';});
     const fc=document.getElementById('fchp');
-    if(fc){fc.style.display='';fc.innerHTML='<div class="fchp">'+tot.toLocaleString()+' SRs</div>';}
+    if(fc){
+      const di=j.data_info||{};
+      const esc=x=>String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const files=(di.files||[]).join(', ');
+      let lbl='<b>'+tot.toLocaleString()+'</b> SRs';
+      if(files) lbl+=' · '+esc(files.length>40?files.slice(0,37)+'…':files);
+      if(di.uploaded_at) lbl+=' · '+esc(di.uploaded_at);
+      fc.style.display='';
+      fc.innerHTML='<div class="fchp" title="'+esc('Current data: '+(files||'-')+(di.uploaded_at?' — uploaded '+di.uploaded_at:'')+(di.source?' via '+di.source:'')+'. A new upload replaces it.')+'">'+lbl+'</div>';
+    }
 
     // ── Init dashboard filters (populate dropdowns from summary metadata) ──
     initDashFilters();

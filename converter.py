@@ -558,6 +558,7 @@ _stage_dir = _cache_dir / '_incoming'   # new upload is built here, swapped in o
 def process_files_bg(file_infos):
     global _job, _cache_dir, _df_cache, _df_full_cache, _dash_cache
     _job.reset(); _job.running=True
+    _current_raw_keys.clear()            # website upload replaces all bucket Excel files
     try: _process_files(file_infos)
     except Exception as e:
         log.error(f"  Upload processing crashed: {e}")
@@ -566,7 +567,7 @@ def process_files_bg(file_infos):
     finally:
         _job.running=False
 
-def _process_files(file_infos):
+def _process_files(file_infos, source='website upload'):
     global _df_cache, _df_full_cache, _dash_cache
     _stage_dir.mkdir(parents=True, exist_ok=True)
     for f in _stage_dir.glob("*.parquet"): f.unlink()
@@ -633,6 +634,7 @@ def _process_files(file_infos):
     for f in _cache_dir.glob("*.parquet"): f.unlink()
     for f in _stage_dir.glob("*.parquet"): os.replace(f, _cache_dir / f.name)
     _build_caches()                      # finish BEFORE reporting done, so the page
+    _set_meta([n for n, _ in file_infos], source)
     _job.progress=100; _job.done=True    # reads the ready cache instead of redoing it
     _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
     if errors: _job.message += ' (skipped: ' + ' | '.join(errors) + ')'
@@ -724,6 +726,17 @@ def _s3():
     return c
 
 _storage_status = {'last_save': None, 'last_load': None}
+# What is loaded right now — shown on the page header ("Book2.xlsx · 13-Oct 14:05")
+_data_meta = {}
+# Excel/CSV keys in the bucket that make up the current data (kept); any other
+# Excel/CSV in the bucket is older history and is deleted after a successful save.
+_current_raw_keys = set()
+
+def _set_meta(files, source):
+    _data_meta.clear()
+    _data_meta.update({'files': list(files), 'source': source,
+                       'uploaded_at': datetime.now().strftime('%d-%b-%Y %H:%M'),
+                       'srs': len(_df_cache) if _df_cache is not None else 0})
 
 def _s3_err(e):
     """Readable storage error: HTTP status + code + message + raw reply."""
@@ -758,6 +771,17 @@ def save_to_storage():
             old += [o['Key'] for o in page.get('Contents', [])
                     if o['Key'].endswith('.parquet') and o['Key'] not in new_keys]
         for k in old: s3.delete_object(Bucket=S3_BUCKET, Key=k)
+        # remove history: older Excel/CSV files sitting in the bucket
+        removed = 0
+        for page in s3.get_paginator('list_objects_v2').paginate(Bucket=S3_BUCKET):
+            for o in page.get('Contents', []):
+                k = o['Key']
+                if (not k.startswith(S3_PREFIX) and k.lower().endswith(_RAW_EXTS)
+                        and k not in _current_raw_keys):
+                    s3.delete_object(Bucket=S3_BUCKET, Key=k); removed += 1
+        if removed: log.info(f"  Removed {removed} older Excel/CSV file(s) from storage")
+        s3.put_object(Bucket=S3_BUCKET, Key=S3_PREFIX + '_meta.json',
+                      Body=json.dumps(_data_meta).encode(), ContentType='application/json')
         _job.message = f'✓ Saved to cloud storage ({len(files)} file(s))'
         _storage_status['last_save'] = f'ok: {len(files)} file(s) at {datetime.now():%d-%b %H:%M}'
         log.info(f"  Saved {len(files)} file(s) to s3://{S3_BUCKET}/{S3_PREFIX}")
@@ -885,6 +909,13 @@ def _load_from_sql(force=False):
             _job.message = 'No stored data yet'; _job.done = True; return
         try:
             sig = tuple(cur.execute("SELECT COUNT(*), MAX(uploaded_at) FROM dbo.rfai_upload_log").fetchone())
+            last = cur.execute("SELECT TOP 1 files, uploaded_at FROM dbo.rfai_upload_log "
+                               "ORDER BY uploaded_at DESC").fetchone()
+            if last:
+                _data_meta.clear()
+                _data_meta.update({'files': [f for f in (last[0] or '').split(', ') if f],
+                                   'source': 'SQL Server',
+                                   'uploaded_at': last[1].strftime('%d-%b-%Y %H:%M')})
         except Exception:
             sig = None
         if sig and _df_cache is not None and _loaded_sig.get('sql') == sig:
@@ -985,8 +1016,17 @@ def _load_once(force=False):
                           Body=json.dumps({'files': raw_sig, 'attempts': attempts}).encode())
             # Excel/CSV uploaded straight into the bucket → convert them now
             up_dir = _cache_dir / '_uploads'; up_dir.mkdir(parents=True, exist_ok=True)
+            # new data = Excel/CSV added since the last conversion; anything older
+            # is history and gets deleted after a successful save. First time
+            # (nothing converted yet): files added within 15 min of the newest one.
+            from datetime import timedelta
+            if newest_pq is not None:
+                batch = [o for o in raw_objs if o['LastModified'] > newest_pq]
+            else:
+                batch = [o for o in raw_objs if newest_raw - o['LastModified'] <= timedelta(minutes=15)]
+            _current_raw_keys.clear(); _current_raw_keys.update(o['Key'] for o in batch)
             infos = []
-            for o in raw_objs:
+            for o in batch:
                 name = o['Key'].rsplit('/', 1)[-1]
                 dst = up_dir / f"{len(infos):03d}_{name}"
                 _job.message = f'Downloading {name} from storage…'
@@ -994,7 +1034,7 @@ def _load_once(force=False):
                 s3.download_file(S3_BUCKET, o['Key'], str(dst))
                 infos.append((name, str(dst)))
             _job.total_files = len(infos)
-            _process_files(infos)          # converts, builds caches, saves parquet back
+            _process_files(infos, 'Supabase upload')   # converts, builds caches, saves back
             try: s3.delete_object(Bucket=S3_BUCKET, Key=marker)
             except Exception: pass
             if _job.error: raise RuntimeError(_job.error)
@@ -1008,6 +1048,12 @@ def _load_once(force=False):
             return
         if pq_objs:
             _loaded_sig['sig'] = pq_sig
+            try:
+                _data_meta.clear()
+                _data_meta.update(json.loads(s3.get_object(
+                    Bucket=S3_BUCKET, Key=S3_PREFIX + '_meta.json')['Body'].read()))
+            except Exception:
+                pass
             for f in _cache_dir.glob('*.parquet'): f.unlink()
             for o in pq_objs:
                 k = o['Key']; dst = _cache_dir / Path(k).name
@@ -1426,7 +1472,8 @@ def summary():
             "file_stats":getattr(_job,'file_stats',[]),
             "circles":_ul('circle'),"categories":_ul('category'),
             "projects":_ul('bPrj'),"tocos":_ul('toco'),
-            "domains":_ul('domain'),"oems":_ul('oem'),"months":mons}
+            "domains":_ul('domain'),"oems":_ul('oem'),"months":mons,
+            "data_info":dict(_data_meta, srs=total_unique)}
 
 @app.get("/api/filter")
 def filter_data(

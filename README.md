@@ -109,6 +109,10 @@ BULK_CONVERT.bat  D:\RFAI_raw_files
 Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render service's
 **Environment** tab.
 
+**Only the latest data is kept.** Every new upload (website or bucket) replaces the previous data.
+Older Excel/CSV files in the bucket are deleted automatically. The page header shows what is loaded,
+e.g. `24,428 SRs · Book2.xlsx · 13-Oct-2026 14:05`.
+
 **Updating data without the website:** upload your Excel/CSV straight into the bucket
 (e.g. Supabase → Storage → rfai-data → **Upload files**), then click **↻ Reload stored data**
 on the site. Files newer than the last conversion are converted automatically. Files over
