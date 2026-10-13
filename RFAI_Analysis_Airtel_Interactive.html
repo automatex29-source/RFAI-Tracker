@@ -668,6 +668,7 @@ thead tr:first-child th{font-family:'DM Sans',var(--fn);font-weight:700;letter-s
     <div id="srv-badge" style="margin-bottom:20px;padding:9px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600">
       <span id="srv-dot" style="width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0"></span>
       <span id="srv-txt" style="color:#991b1b">Checking Python server…</span>
+      <button onclick="_reloadStored()" title="Reload the latest data from cloud storage" style="margin-left:auto;padding:3px 10px;font-size:11px;font-weight:700;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#334155;cursor:pointer">↻ Reload stored data</button>
     </div>
     <div id="dropzone" ondragover="event.preventDefault();this.classList.add('dg')" ondragleave="this.classList.remove('dg')"
       ondrop="event.preventDefault();this.classList.remove('dg');handleDrop(event)"
@@ -7481,11 +7482,27 @@ async function _checkServer(){
     if(dot)dot.style.background='#10b981';
     if(txt){txt.style.color='#065f46';txt.textContent='✓ Python server ready — drop your files above';}
     if(badge){badge.style.background='#f0fdf4';badge.style.borderColor='#86efac';}
+    _autoLoadStored();
   }catch(e){
     if(dot)dot.style.background='#ef4444';
     if(txt){txt.style.color='#991b1b';txt.textContent='⚠ Cannot connect — run CONVERT_TO_PARQUET.bat then refresh this page';}
     if(badge){badge.style.background='#fef2f2';badge.style.borderColor='#fca5a5';}
   }
+}
+
+// If the server already holds data (reloaded from storage), open it without an upload
+async function _autoLoadStored(){
+  const txt=document.getElementById('srv-txt');
+  try{
+    const p=await (await fetch(_B+'/api/progress')).json();
+    if(p.running){ if(txt)txt.textContent='⏳ '+(p.message||'Loading stored data…'); setTimeout(_autoLoadStored,2000); return; }
+    const r=await fetch(_B+'/api/summary'); if(!r.ok) return;
+    const j=await r.json();
+    if(!j.error&&j.total){ if(txt)txt.textContent='✓ Stored data loaded — '+j.total.toLocaleString()+' SRs (drop files to replace)'; _loadDashboard(); }
+  }catch(e){}
+}
+async function _reloadStored(){
+  try{ await fetch(_B+'/api/reload',{method:'POST'}); setTimeout(_autoLoadStored,1000); }catch(e){}
 }
 
 async function _uploadToPython(files){

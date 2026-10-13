@@ -5,3 +5,5 @@ openpyxl
 fastapi
 uvicorn
 python-multipart
+boto3
+duckdb

@@ -14,6 +14,8 @@ Fixes in v4:
   • Full traceback logged on errors
 """
 import os, sys, re, json, time, logging, threading, io, gc
+# system allocator hands freed memory back to the OS (matters on 512 MB hosts)
+os.environ.setdefault('ARROW_DEFAULT_MEMORY_POOL', 'system')
 from pathlib import Path
 from datetime import datetime, date
 
@@ -313,18 +315,41 @@ class Job:
         self.cache_dir=None; self.file_stats=[]; self.rows_no_sr=0
 
 _job       = Job()
-_cache_dir = SCRIPT_DIR / '_rfai_cache'
+_cache_dir = Path(os.environ.get('DATA_DIR') or (SCRIPT_DIR / '_rfai_cache'))
 _dash_cache    = None
 _df_cache      = None
 _df_full_cache = None
 
 _df_cache_cols = ['circle','category','bPrj','toco','domain','oem',
-                  'exitMK','journeyMK','srStatus','delay','srNo']
+                  'exitMK','journeyMK','srStatus','delay','srNo','finalRfai','priDays']
 _CAT_COLS      = ['circle','category','bPrj','toco','domain','oem',
                   'srStatus','group','exitMK','journeyMK']
 
+def _refresh_pending_delay(df):
+    """Stored data can be days/months old: recompute delay of still-pending
+    SRs as of TODAY (same formula as process_row: TODAY - Final RFAI - PRI days)."""
+    if 'finalRfai' not in df.columns or 'srStatus' not in df.columns: return df
+    pend = df['srStatus'].astype(str).isin(['OnAir Pending','Open PRI','RFAI Pending']).to_numpy()
+    if not pend.any(): return df
+    anchor = pd.to_datetime(df['finalRfai'].astype(str), format='%d-%b-%Y', errors='coerce')
+    days = (pd.Timestamp(date.today()) - anchor).dt.days
+    pri = (pd.to_numeric(df['priDays'], errors='coerce').fillna(0).clip(lower=0)
+           if 'priDays' in df.columns else 0)
+    new = (days - pri).clip(lower=0)
+    upd = pend & new.notna().to_numpy()
+    delay = pd.to_numeric(df['delay'], errors='coerce').fillna(-1).to_numpy().astype('int32')
+    delay[upd] = new.to_numpy()[upd].astype('int32')
+    df['delay'] = np.minimum(delay, 32767).astype('int16')
+    if 'group' in df.columns:
+        d = df['delay'].to_numpy()
+        g = np.where(d < 0, 'N/A', np.where(d <= 30, '0-30', np.where(d <= 60, '30-60',
+                     np.where(d <= 90, '60-90', '>90'))))
+        df['group'] = g
+    return df
+
 def _optimise_df(df):
     """Categorical strings + int16 numerics."""
+    df = _refresh_pending_delay(df)
     for col in _CAT_COLS:
         if col in df.columns:
             try: df[col] = df[col].astype('category')
@@ -479,69 +504,107 @@ def process_files_bg(file_infos):
 
 # ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
 def _build_caches():
+    """Read all parquet ONCE as one Arrow table, convert every string column to
+    pandas Categorical (low memory: ~5x smaller than Python str objects),
+    dedup if needed, then share it between the dashboard and journey caches."""
     global _df_cache, _dash_cache, _df_full_cache
     try:
         fs = sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
         if not fs: return
         log.info(f"  Building in-memory cache from {len(fs)} parquet file(s)…")
-
-        # STEP 1: slim columns, one file at a time, numpy-backed
-        slim_parts = []
+        tables = []
         for f in fs:
             try:
-                slim_parts.append(_read_pq(f, columns=_df_cache_cols))
-            except Exception as e:
-                log.warning(f"  Skipping slim {f.name}: {e}")
-        if not slim_parts:
+                # read strings straight into dictionary form -> pandas Categorical,
+                # never materialising millions of individual Python strings
+                str_cols = [fld.name for fld in pq.read_schema(str(f))
+                            if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type)]
+                tables.append(pq.read_table(str(f), read_dictionary=str_cols))
+            except Exception as e: log.warning(f"  Skipping {f.name}: {e}")
+        if not tables:
             log.error("  No parquet files readable"); return
+        tbl = pa.concat_tables(tables, promote_options='default'); del tables
+        if '_ord' in tbl.column_names: tbl = tbl.drop_columns(['_ord'])
+        tbl = tbl.unify_dictionaries()
+        df = tbl.to_pandas(strings_to_categorical=True, self_destruct=True); del tbl
+        gc.collect(); pa.default_memory_pool().release_unused()
 
-        df = pd.concat(slim_parts, ignore_index=True)
-        del slim_parts; gc.collect()
-
-        # STEP 2: dedup — pure numpy path, no PyArrow .take()
-        df = _dedup_df(df)
-        gc.collect()
+        # dedup (skipped for bulk_convert.py output — already one row per SR)
+        if not all(f.name.startswith('rfai_dedup') for f in fs):
+            df = _dedup_df(df); gc.collect()
 
         df = _optimise_df(df)
-        _df_cache   = df
-        _dash_cache = _compute_dash_aggs(df)
-        gc.collect()
-
-        # STEP 3: full-column cache for journey table
-        kept_sr_set = set(df['srNo'].astype(str).unique())
-        kept_sr_set.discard('')
-
-        full_parts = []
-        for f in fs:
-            try:
-                part = _read_pq(f)
-                # Filter using numpy index — no PyArrow boolean filter
-                sr_col = part['srNo'].to_numpy(dtype=object, na_value='')
-                mask   = np.isin(sr_col, list(kept_sr_set)) | (sr_col == '')
-                keep   = np.where(mask)[0]
-                full_parts.append(part.iloc[keep].copy())
-                del part, sr_col, mask, keep; gc.collect()
-            except Exception as e:
-                log.warning(f"  Full-cache skip {f.name}: {e}")
-
-        if full_parts:
-            df_full = pd.concat(full_parts, ignore_index=True)
-            del full_parts; gc.collect()
-            df_full = _dedup_df(df_full); gc.collect()
-            _df_full_cache = _optimise_df(df_full)
-            del df_full; gc.collect()
-        else:
-            _df_full_cache = None
-
-        n_full = len(_df_full_cache) if _df_full_cache is not None else 0
-        c_full = len(_df_full_cache.columns) if _df_full_cache is not None else 0
-        log.info(f"  Cache ready — {len(_df_cache):,} unique SRs (dash) | "
-                 f"{n_full:,} (filter) | {len(_df_cache.columns)}/{c_full} cols")
+        _df_full_cache = df
+        _df_cache = df[[c for c in _df_cache_cols if c in df.columns]]
+        _dash_cache = _compute_dash_aggs(_df_cache)
+        gc.collect(); pa.default_memory_pool().release_unused()
+        log.info(f"  Cache ready — {len(df):,} unique SRs | {len(df.columns)} cols")
 
     except Exception as e:
         log.error(f"  Cache build error: {e}")
         import traceback; traceback.print_exc()
         _df_cache=None; _dash_cache=None; _df_full_cache=None
+
+# ── Persistent storage: Cloudflare R2 / AWS S3 ────────────────────────────
+# bulk_convert.py --upload puts rfai_dedup.parquet in the bucket; the app
+# downloads it on start (and on POST /api/reload) so data survives restarts.
+S3_BUCKET = os.environ.get('S3_BUCKET', '')
+S3_PREFIX = os.environ.get('S3_PREFIX', 'rfai/').rstrip('/') + '/'
+
+def _s3_region():
+    """R2 uses 'auto'; Backblaze B2 needs the region from its endpoint."""
+    if os.environ.get('S3_REGION'): return os.environ['S3_REGION']
+    m = re.search(r's3\.([a-z0-9-]+)\.backblazeb2\.com', os.environ.get('S3_ENDPOINT', ''))
+    return m.group(1) if m else 'auto'
+
+def _s3():
+    import boto3
+    return boto3.client('s3', endpoint_url=os.environ.get('S3_ENDPOINT') or None,
+                        aws_access_key_id=os.environ.get('S3_ACCESS_KEY'),
+                        aws_secret_access_key=os.environ.get('S3_SECRET_KEY'),
+                        region_name=_s3_region(),
+                        config=__import__('botocore.config',fromlist=['Config']).Config(
+                            request_checksum_calculation='when_required',
+                            response_checksum_validation='when_required'))
+
+def load_stored_data():
+    """Pull parquet from the bucket (if configured), then build caches from disk."""
+    global _df_cache, _df_full_cache, _dash_cache
+    if _job.running: return
+    _job.reset(); _job.running = True
+    try:
+        _cache_dir.mkdir(parents=True, exist_ok=True)
+        if S3_BUCKET:
+            _job.message = 'Downloading data from storage…'
+            s3 = _s3(); keys = []
+            for page in s3.get_paginator('list_objects_v2').paginate(Bucket=S3_BUCKET, Prefix=S3_PREFIX):
+                keys += [o['Key'] for o in page.get('Contents', []) if o['Key'].endswith('.parquet')]
+            if keys:
+                for f in _cache_dir.glob('*.parquet'): f.unlink()
+                for k in keys:
+                    dst = _cache_dir / Path(k).name
+                    log.info(f"  Downloading s3://{S3_BUCKET}/{k}")
+                    s3.download_file(S3_BUCKET, k, str(dst) + '.part')
+                    os.replace(str(dst) + '.part', dst)
+            else:
+                log.info(f"  No parquet under s3://{S3_BUCKET}/{S3_PREFIX} yet")
+        if any(_cache_dir.glob('*.parquet')):
+            _job.message = 'Loading data…'
+            _df_cache = _df_full_cache = _dash_cache = None; gc.collect()
+            _build_caches()
+            n = len(_df_cache) if _df_cache is not None else 0
+            _job.rows_processed = _job.rows_kept = n
+            _job.message = f'✓ Loaded {n:,} SRs from storage'
+        else:
+            _job.message = 'No stored data yet'
+        _job.done = True
+    except Exception as e:
+        log.error(f"  Storage load failed: {e}")
+        import traceback; traceback.print_exc()
+        _job.error = str(e); _job.message = 'Storage load failed: ' + str(e)
+    finally:
+        _job.progress = 100; _job.running = False
+        log.info('  ' + _job.message)
 
 # ── Dashboard aggregation ──────────────────────────────────────────────────
 def _compute_dash_aggs(df):
@@ -743,6 +806,36 @@ app=FastAPI()
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
 from fastapi import Request
 from fastapi.responses import JSONResponse as _JR
+
+APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
+
+@app.middleware("http")
+async def _auth(request:Request,call_next):
+    """Optional HTTP Basic auth (any username) when APP_PASSWORD is set."""
+    if APP_PASSWORD and request.url.path != '/api/ping':
+        import base64, secrets
+        ok = False
+        h = request.headers.get('authorization', '')
+        if h.startswith('Basic '):
+            try:
+                pw = base64.b64decode(h[6:]).decode('utf-8', 'replace').split(':', 1)[1]
+                ok = secrets.compare_digest(pw.encode(), APP_PASSWORD.encode())
+            except Exception: ok = False
+        if not ok:
+            from fastapi.responses import Response
+            return Response('Login required', status_code=401,
+                            headers={'WWW-Authenticate': 'Basic realm="RFAI"'})
+    return await call_next(request)
+
+@app.on_event("startup")
+def _startup_load():
+    threading.Thread(target=load_stored_data, daemon=True).start()
+
+@app.post("/api/reload")
+def reload_data():
+    if _job.running: return JSONResponse({"error":"Busy"},status_code=409)
+    threading.Thread(target=load_stored_data, daemon=True).start()
+    return {"ok":True}
 
 @app.middleware("http")
 async def _catch_all(request:Request,call_next):

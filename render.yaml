@@ -2,10 +2,21 @@ services:
   - type: web
     name: rfai-tracker
     runtime: python
-    plan: free
+    plan: free            # 512 MB RAM: fine up to ~300k unique SRs; use 'starter'/'standard' beyond
     buildCommand: pip install -r requirements.txt
     startCommand: python converter.py
     healthCheckPath: /api/ping
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
+      # Cloudflare R2 / Backblaze B2 / AWS S3 (any S3-compatible storage) — where bulk_convert.py uploads the data
+      - key: S3_ENDPOINT      # e.g. https://<account-id>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: APP_PASSWORD     # login password for the dashboard (leave empty = no login)
+        sync: false
