@@ -1181,9 +1181,18 @@ def mk_sort_val(m):
     except: return 0
 
 def row_html(r, months=None):
+    from html import escape as _he
+    r={k:(_he(str(v)) if isinstance(v,str) else v) for k,v in r.items()}   # uploaded text is untrusted
     pf=r.get('priFirst',''); pd2=r.get('priDays',0)
-    base=(f'<tr>'
-          f'<td class="mn">{r.get("srNo","")}</td><td class="mn">{r.get("siteId","")}</td>'
+    st0=r.get('srStatus',''); dl0=r.get('delay',-1)
+    try: dl0=int(dl0)
+    except Exception: dl0=-1
+    st_chip=(f'<span class="badge {SCS.get(st0,"bg2")}">{("✕ "+st0) if st0=="Rejected RFAI" else st0}</span>'
+             if st0 else '')
+    base=(f'<tr data-sr="{r.get("srNo","")}">'
+          f'<td class="mn jt-c1">{r.get("srNo","")}</td><td class="mn jt-c2">{r.get("siteId","")}</td>'
+          f'<td class="jt-c3">{st_chip}</td>'
+          f'<td class="mn tc jt-dy">{"" if dl0<0 else dl0}</td>'
           f'<td>{r.get("circle","")}</td><td>{r.get("toco","")}</td>'
           f'<td>{r.get("domain","")}</td><td>{r.get("oem","")}</td>'
           f'<td>{r.get("tsp","")}</td><td>{r.get("partner","")}</td>'
@@ -1534,6 +1543,26 @@ def filter_data(
     html=''.join(row_html(r.to_dict(),show_months) for _,r in page_df.iterrows())
     return {"html":html,"total":total,"page":page,"pages":pages,
             "start":s+1,"end":min(s+page_size,total),"months":show_months}
+
+@app.get("/api/sr")
+def sr_detail(sr:str=Query(default='')):
+    """Everything known about one SR (for the detail panel)."""
+    df=_df_full_cache
+    if df is None or not sr: return JSONResponse({"error":"Not found"},status_code=404)
+    hit=df[df['srNo'].astype(str)==sr]
+    if not len(hit): return JSONResponse({"error":"Not found"},status_code=404)
+    r=hit.iloc[0]
+    out={}
+    for c in OUT:
+        if c not in hit.columns: continue
+        v=r[c]
+        if c in ('delay','priDays'):
+            try: v=int(v)
+            except Exception: v=-1
+        else:
+            v='' if v is None or str(v) in ('nan','None') else str(v)
+        out[c]=v
+    return out
 
 @app.get("/api/dashboard")
 def dashboard_data(
