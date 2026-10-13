@@ -1247,10 +1247,24 @@ def _pw_ok(given, expected):
     import secrets
     return given is not None and secrets.compare_digest(given.encode(), expected.encode())
 
+# The public cloud copy (Render) is switched off: the tool now runs on the office
+# network with SQL Server. Set CLOUD_ENABLED=1 on Render to turn it back on.
+_CLOUD_OFF = _ON_SERVER and os.environ.get('CLOUD_ENABLED', '').strip() not in ('1', 'true', 'yes')
+_MOVED_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport"
+content="width=device-width,initial-scale=1"><title>RFAI Tracker</title><style>
+body{font-family:system-ui,sans-serif;background:#f5f7fb;color:#1a1d23;display:flex;
+align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px}
+.c{background:#fff;border-radius:16px;padding:32px;max-width:460px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+h1{font-size:20px;margin:0 0 12px}p{color:#4b5563;line-height:1.5;margin:0}</style></head>
+<body><div class="c"><h1>RFAI Tracker has moved</h1><p>This tool now runs on the internal
+office network. Please ask the tool owner for the internal link.</p></div></body></html>"""
+
 @app.middleware("http")
 async def _auth(request:Request,call_next):
-    from fastapi.responses import Response
+    from fastapi.responses import Response, HTMLResponse
     path = request.url.path
+    if _CLOUD_OFF and path != '/api/ping':
+        return HTMLResponse(_MOVED_PAGE, status_code=410 if path.startswith('/api/') else 200)
     if path in _ADMIN_PATHS and (ADMIN_PASSWORD or _ON_SERVER):
         if not ADMIN_PASSWORD:
             return JSONResponse({"error":"Upload is locked: ADMIN_PASSWORD is not set on the server. "
@@ -1267,6 +1281,8 @@ async def _auth(request:Request,call_next):
 
 @app.on_event("startup")
 def _startup_load():
+    if _CLOUD_OFF:
+        log.info("  Cloud copy switched off (set CLOUD_ENABLED=1 to enable)"); return
     threading.Thread(target=load_stored_data, kwargs={'retries': 3}, daemon=True).start()
 
 @app.post("/api/reload")

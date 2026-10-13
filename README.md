@@ -16,6 +16,13 @@ Requirements: Python 3 with `pandas pyarrow openpyxl fastapi uvicorn python-mult
 
 Data stays inside your own network, in your own SQL Server.
 
+**Quick start:** download this repository (**Code → Download ZIP**), unzip it (e.g. to `D:\RFAI`)
+and double-click **`START_HERE.bat`**. It installs Python if needed, installs the libraries, asks
+once for an upload password, creates an **RFAI Tracker** icon on the desktop and starts the tool.
+After that, just double-click the desktop icon.
+
+Manual steps (what START_HERE.bat does):
+
 1. Install **Python** from python.org and tick **"Add python.exe to PATH"** during setup.
 2. Download this repository (**Code → Download ZIP**) and unzip it, e.g. to `D:\RFAI`.
 3. Double-click **`CONVERT_TO_PARQUET.bat`**. The first run installs the libraries (a few minutes).
@@ -119,7 +126,12 @@ on the start screen (or restart the service).
 Pending SRs' aging is recalculated against today's date every time the data loads,
 so stored data never shows stale aging.
 
-## Deploy on Render
+## Deploy on Render (switched off)
+
+The cloud copy is switched off: on Render the app only shows a "moved" notice and serves
+no data. Add the environment variable `CLOUD_ENABLED=1` on Render to turn it back on.
+
+### Original Render setup
 1. Go to https://dashboard.render.com → **New** → **Blueprint**.
 2. Connect this GitHub repo (`automatex29-source/RFAI-Tracker`) and pick the branch.
 3. Render reads `render.yaml` and creates the `rfai-tracker` web service. Click **Apply**.

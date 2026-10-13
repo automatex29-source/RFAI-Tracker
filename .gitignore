@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 rfai_bulk_out/
 r2_settings.bat
+rfai_local_settings.bat

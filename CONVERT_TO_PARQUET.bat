@@ -15,6 +15,9 @@ REM Password needed to UPLOAD files (viewing stays open on the office network).
 REM Leave empty only if you are the only person using this PC.
 set ADMIN_PASSWORD=
 REM ============================================================================
+REM Personal settings saved by START_HERE.bat (Python path, upload password)
+set "PY=python"
+if exist "%~dp0rfai_local_settings.bat" call "%~dp0rfai_local_settings.bat"
 
 echo.
 echo  Stopping any existing RFAI server...
@@ -22,9 +25,11 @@ for /f "tokens=5" %%a in ('netstat -aon ^| find ":8765" ^| find "LISTENING"') do
     taskkill /f /pid %%a >nul 2>&1
 )
 timeout /t 1 /nobreak >nul
-echo  Installing libraries (first time only)...
-pip install pandas pyarrow openpyxl python-calamine lxml pyodbc fastapi uvicorn "python-multipart" -q --disable-pip-version-check 2>nul
-if errorlevel 1 pip install pandas pyarrow openpyxl python-calamine lxml pyodbc fastapi uvicorn "python-multipart" -q
+"%PY%" -c "import fastapi,uvicorn,pandas,pyarrow,pyodbc,lxml,python_calamine,multipart" >nul 2>&1
+if errorlevel 1 (
+    echo  Installing libraries ^(first time only^)...
+    "%PY%" -m pip install pandas pyarrow openpyxl python-calamine lxml pyodbc fastapi uvicorn python-multipart -q --disable-pip-version-check
+)
 echo  Ready.
 echo.
 echo  ============================================================
@@ -33,7 +38,7 @@ echo   For colleagues:      http://%COMPUTERNAME%:8765
 echo   (same office network / VPN; keep this window open)
 echo  ============================================================
 echo.
-python "%~dp0converter.py"
+"%PY%" "%~dp0converter.py"
 if %errorlevel% neq 0 (
     echo.
     echo  ERROR - see above.
