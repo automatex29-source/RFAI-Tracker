@@ -45,9 +45,10 @@ if exist "%~dp0rfai_local_settings.bat" (
     echo  [3/4] Settings already saved ^(delete rfai_local_settings.bat to change them^)
 ) else (
     echo.
-    echo  [3/4] Choose a password for UPLOADING files.
-    echo        Colleagues can view without it. Avoid the characters ! %% ^& ^< ^> ^|
-    set /p "ADMINPW=        Upload password: "
+    echo  [3/4] Choose the password of the "admin" sign-in user.
+    echo        Sign in as admin, then add colleagues under the account button - Manage users.
+    echo        Avoid the characters ! %% ^& ^< ^> ^|
+    set /p "ADMINPW=        Admin password: "
     call :save_settings
 )
 

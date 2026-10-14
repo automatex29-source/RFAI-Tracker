@@ -20,5 +20,5 @@ services:
         sync: false
       - key: S3_REGION        # Supabase: the Region shown on its S3 settings page
         sync: false
-      - key: ADMIN_PASSWORD   # optional: allows browser uploads; empty = uploads disabled
+      - key: ADMIN_PASSWORD   # password of the built-in "admin" sign-in user (required to sign in)
         sync: false

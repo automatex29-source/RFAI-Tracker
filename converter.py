@@ -1290,12 +1290,16 @@ app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_
 from fastapi import Request
 from fastapi.responses import JSONResponse as _JR
 
-VIEW_PASSWORD  = os.environ.get('VIEW_PASSWORD', '')   # set = whole site needs login (default: public)
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # set = needed to upload data
-# On a public server (Render) browser uploads are blocked unless ADMIN_PASSWORD
-# is set, so visitors can view the dashboard but never replace the data.
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # password of the built-in "admin" user
 _ON_SERVER     = bool(os.environ.get('RENDER'))
-_ADMIN_PATHS   = ('/api/upload',)
+# Login is required whenever an admin password exists, and always on a server.
+_AUTH_ON       = bool(ADMIN_PASSWORD) or _ON_SERVER
+_PUBLIC_PATHS  = ('/login', '/api/login', '/api/logout', '/api/ping', '/favicon.ico')
+_ADMIN_PATHS   = ('/api/upload', '/api/reload', '/api/storage-test', '/api/users')
+LOGIN_FILE     = SCRIPT_DIR / 'login.html'
+_SESSION_COOKIE = 'rfai_session'
+_SESSION_HOURS  = 12          # normal sign-in
+_REMEMBER_DAYS  = 30          # "keep me signed in"
 
 def _basic_pw(request):
     import base64
@@ -1307,6 +1311,103 @@ def _basic_pw(request):
 def _pw_ok(given, expected):
     import secrets
     return given is not None and secrets.compare_digest(given.encode(), expected.encode())
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+# Stored as rfai/_users.json in the bucket (or _rfai_cache/_users.json on a PC)
+# with salted PBKDF2 password hashes. "admin" is built in: its password is
+# ADMIN_PASSWORD, so it always works even if the users file is lost.
+_users = {}
+_users_state = {'loaded': False}
+_users_lock = threading.Lock()
+_USERS_LOCAL = _cache_dir / '_users.json'
+_USER_RE = re.compile(r'^[a-z0-9._@-]{2,40}$')
+
+def _hash_pw(pw, salt=None):
+    import hashlib, secrets
+    salt = salt or secrets.token_hex(16)
+    return salt, hashlib.pbkdf2_hmac('sha256', pw.encode(), bytes.fromhex(salt), 200_000).hex()
+
+def _load_users():
+    data = None
+    try:
+        if S3_BUCKET:
+            try:
+                data = json.loads(_s3().get_object(Bucket=S3_BUCKET, Key=S3_PREFIX + '_users.json')['Body'].read())
+            except Exception as e:
+                if 'NoSuchKey' not in str(e) and '404' not in str(e): raise
+        elif _USERS_LOCAL.exists():
+            data = json.loads(_USERS_LOCAL.read_text())
+    except Exception as e:
+        log.error(f"  Could not read users: {e}")
+        return False
+    with _users_lock:
+        _users.clear(); _users.update(data or {})
+    _users_state['loaded'] = True
+    return True
+
+def _save_users():
+    body = json.dumps(_users, indent=1)
+    if S3_BUCKET:
+        _s3().put_object(Bucket=S3_BUCKET, Key=S3_PREFIX + '_users.json',
+                         Body=body.encode(), ContentType='application/json')
+    else:
+        _USERS_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+        _USERS_LOCAL.write_text(body)
+
+def _check_user(name, pw):
+    """-> role or None"""
+    import secrets
+    if name == 'admin':
+        return 'admin' if ADMIN_PASSWORD and _pw_ok(pw, ADMIN_PASSWORD) else None
+    u = _users.get(name)
+    if not u: _hash_pw(pw or 'x'); return None          # same timing as a real check
+    _, h = _hash_pw(pw, u['s'])
+    return u.get('r', 'viewer') if secrets.compare_digest(h, u['h']) else None
+
+def _user_fp(name):
+    """Changes when the user's password changes or the user is deleted -> old sessions end."""
+    import hashlib
+    if name == 'admin': src = ADMIN_PASSWORD
+    else:
+        u = _users.get(name)
+        if not u: return None
+        src = u['h']
+    return hashlib.sha256(('fp' + src).encode()).hexdigest()[:12]
+
+# ── Sessions (signed cookie) ─────────────────────────────────────────────────
+def _session_secret():
+    import hashlib
+    s = os.environ.get('SESSION_SECRET') or (ADMIN_PASSWORD + os.environ.get('S3_SECRET_KEY', '') + 'rfai-session')
+    return hashlib.sha256(s.encode()).digest()
+
+def _make_token(name, hours):
+    import base64, hmac, hashlib
+    body = base64.urlsafe_b64encode(json.dumps({'u': name, 'e': int(time.time() + hours * 3600),
+                                                'f': _user_fp(name)}).encode()).decode().rstrip('=')
+    sig = hmac.new(_session_secret(), body.encode(), hashlib.sha256).hexdigest()
+    return body + '.' + sig
+
+def _session_user(request):
+    """-> (name, role) from a valid session cookie, else None"""
+    import base64, hmac, hashlib
+    tok = request.cookies.get(_SESSION_COOKIE, '')
+    if '.' not in tok: return None
+    body, sig = tok.rsplit('.', 1)
+    if not hmac.compare_digest(sig, hmac.new(_session_secret(), body.encode(), hashlib.sha256).hexdigest()):
+        return None
+    try: d = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+    except Exception: return None
+    name = d.get('u')
+    if d.get('e', 0) < time.time() or not name or d.get('f') != _user_fp(name): return None
+    if name == 'admin': return (name, 'admin')
+    return (name, _users[name].get('r', 'viewer'))
+
+# brute-force guard: max 8 failed sign-ins per username + address in 10 minutes
+# (per username, so one person's typos never lock out a whole office behind one IP)
+_login_fails = {}
+def _client_ip(request):
+    return (request.headers.get('x-forwarded-for', '').split(',')[0].strip()
+            or (request.client.host if request.client else '?'))
 
 # Kill-switch for the public cloud copy (Render): set CLOUD_DISABLED=1 there to show
 # only a "moved" notice and serve no data.
@@ -1322,28 +1423,131 @@ office network. Please ask the tool owner for the internal link.</p></div></body
 
 @app.middleware("http")
 async def _auth(request:Request,call_next):
-    from fastapi.responses import Response, HTMLResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
     path = request.url.path
     if _CLOUD_OFF and path != '/api/ping':
         return HTMLResponse(_MOVED_PAGE, status_code=410 if path.startswith('/api/') else 200)
-    if path in _ADMIN_PATHS and (ADMIN_PASSWORD or _ON_SERVER):
-        if not ADMIN_PASSWORD:
-            return JSONResponse({"error":"Upload is locked: ADMIN_PASSWORD is not set on the server. "
-                                 "In Render open rfai-tracker → Environment, add ADMIN_PASSWORD, "
-                                 "then click 'Save, rebuild, and deploy'."}, status_code=403)
-        if not _pw_ok(_basic_pw(request), ADMIN_PASSWORD):
-            return Response('Admin login required', status_code=401,
-                            headers={'WWW-Authenticate': 'Basic realm="RFAI admin"'})
-    elif VIEW_PASSWORD and path != '/api/ping':
-        if not _pw_ok(_basic_pw(request), VIEW_PASSWORD):
-            return Response('Login required', status_code=401,
-                            headers={'WWW-Authenticate': 'Basic realm="RFAI"'})
+    request.state.user = ('admin', 'admin') if not _AUTH_ON else None
+    if not _AUTH_ON or path in _PUBLIC_PATHS:
+        return await call_next(request)
+    user = _session_user(request)
+    if user is None and ADMIN_PASSWORD and _pw_ok(_basic_pw(request), ADMIN_PASSWORD):
+        user = ('admin', 'admin')                    # scripts: HTTP basic auth with ADMIN_PASSWORD
+    if user is None:
+        if path.startswith('/api/'):
+            return JSONResponse({"error": "Please sign in", "login": True}, status_code=401)
+        return RedirectResponse('/login', status_code=303)
+    if any(path == a or path.startswith(a + '/') for a in _ADMIN_PATHS) and user[1] != 'admin':
+        return JSONResponse({"error": "Only an admin can do this. Ask the tool owner."}, status_code=403)
+    request.state.user = user
     return await call_next(request)
+
+@app.get("/login")
+def login_page():
+    if LOGIN_FILE.exists(): return FileResponse(str(LOGIN_FILE), headers={'Cache-Control': 'no-store'})
+    return JSONResponse({"error": "login.html not found"}, status_code=404)
+
+@app.post("/api/login")
+async def api_login(request:Request):
+    from fastapi.responses import JSONResponse as J
+    if _CLOUD_OFF: return J({"error": "off"}, status_code=410)
+    if not ADMIN_PASSWORD and _ON_SERVER:
+        return J({"error": "Sign-in is not set up yet: add ADMIN_PASSWORD in Render → Environment."}, status_code=503)
+    try: d = await request.json()
+    except Exception: d = {}
+    name = str(d.get('username', '')).strip().lower(); pw = str(d.get('password', ''))
+    key = _client_ip(request) + '|' + name; now = time.time()
+    fails = [t for t in _login_fails.get(key, []) if now - t < 600]
+    if len(fails) >= 8:
+        return J({"error": "Too many wrong attempts. Try again in 10 minutes."}, status_code=429)
+    if name != 'admin' and not _users_state['loaded']: _load_users()
+    role = _check_user(name, pw) if name and pw else None
+    if not role:
+        fails.append(now); _login_fails[key] = fails
+        if len(_login_fails) > 5000: _login_fails.clear()
+        return J({"error": "Wrong username or password."}, status_code=401)
+    _login_fails.pop(key, None)
+    remember = bool(d.get('remember'))
+    hours = _REMEMBER_DAYS * 24 if remember else _SESSION_HOURS
+    r = J({"ok": True, "user": name, "role": role})
+    secure = request.url.scheme == 'https' or request.headers.get('x-forwarded-proto') == 'https'
+    r.set_cookie(_SESSION_COOKIE, _make_token(name, hours), httponly=True, samesite='lax', secure=secure,
+                 max_age=hours * 3600 if remember else None, path='/')
+    log.info(f"  Sign-in: {name} ({role})")
+    return r
+
+@app.post("/api/logout")
+def api_logout():
+    r = JSONResponse({"ok": True}); r.delete_cookie(_SESSION_COOKIE, path='/'); return r
+
+@app.get("/api/me")
+def api_me(request:Request):
+    u = request.state.user or ('', '')
+    return {"user": u[0], "role": u[1], "auth": _AUTH_ON}
+
+@app.post("/api/me/password")
+async def api_my_password(request:Request):
+    name = request.state.user[0]
+    if name == 'admin':
+        return JSONResponse({"error": "The admin password is ADMIN_PASSWORD in the server settings."}, status_code=400)
+    d = await request.json()
+    if not _check_user(name, str(d.get('old', ''))):
+        return JSONResponse({"error": "Current password is wrong."}, status_code=400)
+    new = str(d.get('new', ''))
+    if len(new) < 8: return JSONResponse({"error": "New password must be at least 8 characters."}, status_code=400)
+    with _users_lock:
+        u = _users[name]; u['s'], u['h'] = _hash_pw(new)
+        _save_users()
+    return {"ok": True}
+
+@app.get("/api/users")
+def api_users():
+    with _users_lock:
+        rows = [{"username": k, "role": v.get('r', 'viewer'), "created": v.get('c', ''), "by": v.get('by', '')}
+                for k, v in sorted(_users.items())]
+    return {"users": [{"username": "admin", "role": "admin", "created": "built in", "by": ""}] + rows}
+
+@app.post("/api/users")
+async def api_user_save(request:Request):
+    d = await request.json()
+    name = str(d.get('username', '')).strip().lower(); pw = str(d.get('password', ''))
+    role = 'admin' if d.get('role') == 'admin' else 'viewer'
+    if name == 'admin': return JSONResponse({"error": "\"admin\" is the built-in user."}, status_code=400)
+    if not _USER_RE.match(name):
+        return JSONResponse({"error": "Username: 2-40 characters, letters, numbers, . _ @ - only."}, status_code=400)
+    if not _users_state['loaded'] and not _load_users():
+        return JSONResponse({"error": "Could not read the user list from storage. Try again."}, status_code=503)
+    if name not in _users and len(pw) < 8:
+        return JSONResponse({"error": "Password must be at least 8 characters."}, status_code=400)
+    if pw and len(pw) < 8:
+        return JSONResponse({"error": "Password must be at least 8 characters."}, status_code=400)
+    with _users_lock:
+        u = _users.setdefault(name, {'c': datetime.now().strftime('%d-%b-%Y'), 'by': request.state.user[0]})
+        u['r'] = role
+        if pw: u['s'], u['h'] = _hash_pw(pw)
+        try: _save_users()
+        except Exception as e:
+            _load_users(); return JSONResponse({"error": f"Could not save: {e}"}, status_code=500)
+    return {"ok": True}
+
+@app.delete("/api/users/{name}")
+def api_user_delete(name:str):
+    name = name.strip().lower()
+    if not _users_state['loaded'] and not _load_users():
+        return JSONResponse({"error": "Could not read the user list from storage. Try again."}, status_code=503)
+    with _users_lock:
+        if name not in _users: return JSONResponse({"error": "No such user."}, status_code=404)
+        _users.pop(name)
+        try: _save_users()
+        except Exception as e:
+            _load_users(); return JSONResponse({"error": f"Could not save: {e}"}, status_code=500)
+    return {"ok": True}
 
 @app.on_event("startup")
 def _startup_load():
     if _CLOUD_OFF:
         log.info("  Cloud copy switched off (CLOUD_DISABLED=1)"); return
+    if _AUTH_ON: threading.Thread(target=_load_users, daemon=True).start()
     threading.Thread(target=load_stored_data, kwargs={'retries': 3}, daemon=True).start()
 
 @app.post("/api/reload")

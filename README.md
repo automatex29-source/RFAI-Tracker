@@ -35,7 +35,8 @@ Manual steps (what START_HERE.bat does):
 
 Settings are at the top of `CONVERT_TO_PARQUET.bat`:
 - `SQL_SERVER`: leave empty to auto-detect, or paste the **Server name** from the SSMS login window.
-- `ADMIN_PASSWORD`: the password needed to upload files. Viewing stays open on the network.
+- `ADMIN_PASSWORD`: password of the built-in **admin** user. When set, everyone must sign in;
+  the admin adds colleagues under the round account button → **Manage users**.
 - The tool uses Windows Authentication, so no database password is needed. For a SQL login, add
   `set SQL_USER=...` and `set SQL_PASSWORD=...` instead.
 - If it says *"No SQL Server ODBC driver found"*, install **ODBC Driver 18 for SQL Server** (free,
@@ -122,11 +123,15 @@ prefer **CSV** (Excel → Save As → CSV) for big files.
 on the site. Files newer than the last conversion are converted automatically. Files over
 the storage's own upload limit (Supabase free: 50 MB) need the website upload or `BULK_CONVERT.bat`.
 
-**Who can see it:**
-- By default **anyone with the link can view** the dashboard.
-- To require a login for viewers, add a `VIEW_PASSWORD` variable (any username, that password).
-- Uploading through the browser is **disabled** on Render, so visitors can't replace your
-  data. Set `ADMIN_PASSWORD` to upload from the browser yourself. Uploaded data is then
+**Who can see it (sign-in):**
+- Everyone must **sign in** with a username and password. Nobody can see data without one.
+- Built-in user **`admin`**, password = the `ADMIN_PASSWORD` variable. Without `ADMIN_PASSWORD`
+  nobody can sign in on Render.
+- Signed in as admin, click the round account button (top right) → **Manage users** to add
+  people. **Viewer** = can see everything; **Admin** = can also upload data and manage users.
+  Users are saved in the bucket (`rfai/_users.json`, passwords hashed), so they survive restarts.
+- Users change their own password from the same menu. Changing `ADMIN_PASSWORD` signs everyone out.
+- Uploaded data is then
   saved to the storage bucket automatically, so it survives restarts. No PC setup is needed
   for files the browser can handle (up to a few hundred MB). After each new upload, click **↻ Reload stored data**
 on the start screen (or restart the service).

@@ -11,8 +11,9 @@ set SQL_DATABASE=RFAI
 REM Server name: leave empty to auto-detect. If not found, copy the
 REM "Server name" from the SSMS login window, e.g.  SNEHA-SHARMA\SQLEXPRESS
 set SQL_SERVER=
-REM Password needed to UPLOAD files (viewing stays open on the office network).
-REM Leave empty only if you are the only person using this PC.
+REM Password of the built-in "admin" sign-in user. When set, everyone must sign in
+REM (admin adds colleagues under the account button - Manage users).
+REM Leave empty only if you are the only person using this PC (no sign-in then).
 set ADMIN_PASSWORD=
 REM ============================================================================
 REM Personal settings saved by START_HERE.bat (Python path, upload password)
