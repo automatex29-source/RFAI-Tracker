@@ -105,6 +105,46 @@ label.l{display:block;font-size:17px;font-weight:700;margin-bottom:11px}
 }
 @media(max-width:420px){.welcome h1{font-size:40px}}
 
+/* ── sign-in panel: raised card ── */
+.side{background:
+   radial-gradient(520px 420px at 62% 46%,rgba(255,70,80,.10),transparent 70%),
+   radial-gradient(circle,rgba(200,30,45,.10) 1px,transparent 1.4px) 0 0/22px 22px,
+   linear-gradient(180deg,#fff,#fbf6f6) !important;justify-content:flex-start}
+form.card{position:relative;z-index:1;background:rgba(255,255,255,.94);border:1px solid rgba(200,30,45,.10);border-radius:24px;
+  padding:34px 38px 30px;max-width:540px;margin-top:clamp(28px,6vh,72px);
+  box-shadow:0 1px 0 #fff inset,0 2px 4px rgba(120,20,30,.04),0 30px 60px -28px rgba(150,10,25,.35),0 12px 24px -16px rgba(120,20,30,.18);
+  backdrop-filter:blur(6px)}
+form.card::before{content:'';position:absolute;left:38px;right:38px;top:-1px;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,#ff2a2a,#b8000c)}
+.badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:#c4000f;background:#fff0f1;border:1px solid #ffd6da;
+  padding:5px 11px 5px 8px;border-radius:999px;margin-bottom:14px}
+.badge svg{width:15px;height:15px;fill:none;stroke:#c4000f;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+form.card h2{font-size:34px}
+form.card .sub{font-size:15.5px;margin:8px 0 26px}
+form.card .sub b{color:#1a1d24;font-weight:700}
+form.card label.l{font-size:14.5px;margin-bottom:8px}
+form.card .fld{border-radius:14px;background:#fbfbfc;margin-bottom:20px}
+form.card .fld:hover{border-color:#d9c3c6}
+form.card .fld:focus-within{background:#fff}
+form.card .fld input{padding:15px 16px;font-size:15.5px}
+form.card .chk{font-size:14.5px;margin:-2px 0 22px}
+form.card .go{border-radius:14px;padding:16px;font-size:17px;position:relative;overflow:hidden}
+form.card .go::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.28) 48%,transparent 66%);transform:translateX(-120%);transition:transform .7s}
+form.card .go:hover::after{transform:translateX(120%)}
+form.card .go:hover{transform:translateY(-1px)}
+form.card .or{margin:26px 0 18px}
+form.card .help{background:#fbf7f7;border:1px solid #f3e4e6;border-radius:14px;padding:13px 14px;font-size:13.5px;align-items:center}
+form.card .help b{font-weight:700;color:#1d2129}
+.hic{flex:0 0 36px;height:36px;border-radius:10px;background:#fff;border:1px solid #f1dfe2;display:flex;align-items:center;justify-content:center}
+.hic svg{width:19px;height:19px;margin:0;stroke:#c4000f}
+.trust{position:relative;z-index:1;list-style:none;display:flex;justify-content:center;flex-wrap:wrap;gap:8px 22px;margin:22px auto 0;max-width:540px;width:100%}
+.trust li{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#6b7180}
+.trust svg{width:16px;height:16px;fill:none;stroke:#c4000f;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.sign{display:none}
+@media(min-height:1000px) and (min-width:1500px){.sign{display:flex}}
+@media(max-height:800px) and (min-width:901px){form.card .or{display:none}form.card .help{margin-top:16px}form.card{padding:26px 32px 22px;margin-top:3vh}form.card h2{font-size:30px}form.card .sub{margin-bottom:18px}
+  form.card .fld{margin-bottom:14px}form.card .or{margin:16px 0 12px}.trust{margin-top:14px}}
+@media(max-width:900px){form.card{padding:24px 20px 22px;border-radius:20px;margin-top:4px}.side{padding-top:16px}}
+
 /* ── poster hero (overrides the drawn version) ── */
 .hero{flex:0 0 auto;width:min(62vw,calc(100vh*993/883));background:none;border-radius:0;overflow:hidden}
 .hero .poster{display:block;width:100%;height:100vh;object-fit:cover;object-position:0% 50%}
@@ -137,9 +177,10 @@ label.l{display:block;font-size:17px;font-weight:700;margin-bottom:11px}
     <circle cx="300" cy="100" r="140" fill="none" stroke="#ffd0d0" stroke-width="6" opacity=".7"/>
   </svg>
   <div class="tags">AI<i></i>TELECOM<i></i>CONNECTED INDIA</div>
-  <form id="f" novalidate>
+  <form id="f" class="card" novalidate>
+    <div class="badge"><svg viewBox="0 0 24 24"><path d="M12 2.5l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6z"/><path d="M8.6 12l2.4 2.4 4.4-4.6"/></svg>Secure sign-in</div>
     <h2>Sign in</h2>
-    <p class="sub">Use your username and password to access RFAI Tracker.</p>
+    <p class="sub">Use your username and password to access <b>RFAI Tracker</b>.</p>
     <div class="err" id="err" role="alert"></div>
     <label class="l" for="u">Username</label>
     <div class="fld split">
@@ -155,9 +196,14 @@ label.l{display:block;font-size:17px;font-weight:700;margin-bottom:11px}
     <label class="chk"><input type="checkbox" id="r" checked> Keep me signed in for 30 days</label>
     <button class="go" id="go" type="submit"><span class="spin"></span><svg class="arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg><span id="gl">Sign in</span></button>
     <div class="or">OR</div>
-    <div class="help"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-      <div>No account or forgot your password?<br>Ask the RFAI Tracker admin.</div></div>
+    <div class="help"><span class="hic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.8-2.5 2.2-2.5 3.8"/><circle cx="12" cy="17.3" r=".6" fill="currentColor"/></svg></span>
+      <div><b>No account or forgot your password?</b><br>Ask the RFAI Tracker admin to add you or reset it.</div></div>
   </form>
+  <ul class="trust" aria-label="Security">
+    <li><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>Encrypted session</li>
+    <li><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 11l2 2 4-4"/></svg>Role-based access</li>
+    <li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Auto sign-out</li>
+  </ul>
   <div class="sign" aria-hidden="true"><p>Together for<br>&nbsp;a connected India</p>
     <svg viewBox="0 0 80 180" fill="none" stroke="#8a90a0" stroke-width="1.2"><path d="M40 6v14M30 174L40 20l10 154M33 130h14M35 96h10M36.5 66h7M31 160l16-30M49 160L33 130M33 130l12-34M47 130L35 96M35 96l8-30M45 96l-8-30"/><rect x="28" y="40" width="5" height="16"/><rect x="47" y="40" width="5" height="16"/><path d="M20 174h40"/></svg></div>
 </main>
