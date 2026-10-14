@@ -1288,11 +1288,8 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
       <div class="mj-ttl"><h1>Milestone Journey</h1>
         <p>How many SRs have reached each milestone. The ring shows the share of all SRs. Click a milestone to open those SRs.</p></div>
       <div class="mj-right">
-        <span class="mj-health" id="mj-health"></span>
         <span class="mj-date" id="mj-date" title="Range of RFAI notice dates in the data"></span>
         <select id="cc-scope" class="mj-sel" onchange="ccSetScope(this.value)" aria-label="Circle scope"><option value="">All circles</option></select>
-        <button class="mj-arrow" onclick="ccStepScope(-1)" aria-label="Previous circle">‹</button>
-        <button class="mj-arrow" onclick="ccStepScope(1)" aria-label="Next circle">›</button>
         <nav class="mj-nav" aria-label="Sections">
           <form class="mj-search" id="mj-search" onsubmit="hmSearch(event)" role="search">
             <input id="hm-q" type="search" placeholder="Find SR # or Site ID…" aria-label="Find an SR number or site ID" autocomplete="off">
