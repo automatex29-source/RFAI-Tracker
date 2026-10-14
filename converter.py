@@ -1925,6 +1925,85 @@ def drill_data(
     rows=out.to_dict('records')
     return {"rows":rows,"total":len(rows)}
 
+@app.get("/api/explore")
+def explore(status:str=Query(default=''), circle:str=Query(default=''), category:str=Query(default=''),
+            oem:str=Query(default=''), toco:str=Query(default=''), month:str=Query(default=''),
+            aging:str=Query(default=''), recent:str=Query(default=''), q:str=Query(default=''),
+            sort:str=Query(default='delay'), dir:str=Query(default='desc'),
+            page:int=Query(default=1), size:int=Query(default=50)):
+    """SR Explorer: the SRs behind any number clicked on Home or the Dashboard,
+    with summaries (status mix, circles, ageing) and a sortable, paged list."""
+    df=_df_full_cache
+    if df is None or not len(df): return {"total":0,"rows":[],"summary":{}}
+    m=np.ones(len(df),bool)
+    def col(c): return df[c].astype(str).to_numpy() if c in df.columns else np.full(len(df),'')
+    st=col('srStatus')
+    PEND=['OnAir Pending','Open PRI','RFAI Pending']
+    if status:
+        want=[]
+        for x in status.split(','):
+            want+=PEND if x=='pending' else [x]
+        m&=np.isin(st,want)
+    for key,val in (('circle',circle),('category',category),('oem',oem),('toco',toco),('exitMK',month)):
+        if val: m&=np.isin(col(key),[v for v in val.split(',')])
+    delay=pd.to_numeric(df['delay'],errors='coerce').fillna(-1).to_numpy()
+    if aging:
+        lo,hi={'0-30':(0,30),'30-60':(31,60),'60-90':(61,90),'>90':(91,10**6),'>30':(31,10**6)}.get(aging,(0,10**6))
+        m&=(delay>=lo)&(delay<=hi)
+    if recent:
+        cname={'onair7':'onAir','final7':'finalRfai','pri7':'priLast','rfai7':'rfaiNotice'}.get(recent)
+        if cname and cname in df.columns:
+            d=pd.to_datetime(df[cname].astype(str),format='%d-%b-%Y',errors='coerce')
+            today=pd.Timestamp(date.today())
+            m&=((d>today-pd.Timedelta(days=7))&(d<=today)).to_numpy()
+    if q:
+        ql=q.strip().lower()
+        m&=(pd.Series(col('srNo')).str.lower().str.contains(ql,regex=False).to_numpy()
+            |pd.Series(col('siteId')).str.lower().str.contains(ql,regex=False).to_numpy())
+    sub=df[m]; total=int(m.sum())
+    sst=st[m]; sd=delay[m]
+    # summaries
+    stc={k:int(v) for k,v in pd.Series(sst).value_counts().items() if k and k!='nan'}
+    circ=[]
+    if total:
+        g=pd.DataFrame({'c':col('circle')[m],'on':sst=='OnAir'}).groupby('c')
+        cs=g.size().sort_values(ascending=False)
+        on=g['on'].sum()
+        circ=[{'circle':str(k),'n':int(v),'onair':int(on.get(k,0))} for k,v in cs.head(12).items() if k and k!='nan']
+    pend_mask=np.isin(sst,PEND)
+    ages={}
+    for lab,(lo,hi) in (('0-30',(0,30)),('30-60',(31,60)),('60-90',(61,90)),('>90',(91,10**6))):
+        ages[lab]=int(((sd>=lo)&(sd<=hi)).sum())
+    valid=sd[sd>=0]
+    summ={'statuses':stc,'circles':circ,'aging':ages,
+          'avg_days':int(round(valid.mean())) if len(valid) else None,
+          'max_days':int(valid.max()) if len(valid) else None,
+          'pending':int(pend_mask.sum()),'onair':int((sst=='OnAir').sum())}
+    # sort + page
+    COLS=['srNo','siteId','circle','srStatus','delay','bPrj','category','toco','oem','tsp',
+          'rfaiNotice','finalRfai','priLast','onAir','exitMK']
+    sort=sort if sort in COLS else 'delay'
+    asc=dir=='asc'
+    if total:
+        if sort in ('rfaiNotice','finalRfai','priLast','onAir'):
+            key=pd.to_datetime(sub[sort].astype(str),format='%d-%b-%Y',errors='coerce')
+        elif sort=='delay':
+            key=pd.Series(delay[m],index=sub.index).where(lambda x:x>=0)
+        else:
+            key=sub[sort].astype(str).str.lower() if sort in sub.columns else pd.Series('',index=sub.index)
+        order=key.sort_values(ascending=asc,na_position='last').index
+        size=max(10,min(int(size),500)); pages=max(1,-(-total//size)); page=max(1,min(int(page),pages))
+        pg=sub.loc[order[(page-1)*size:page*size]]
+    else:
+        size=max(10,min(int(size),500)); pages=1; page=1; pg=sub
+    rows=[]
+    for _,r in pg.iterrows():
+        d={c:('' if c not in pg.columns or str(r[c]) in ('nan','None') else str(r[c])) for c in COLS if c!='delay'}
+        dv=pd.to_numeric(r.get('delay'),errors='coerce')
+        d['delay']=None if dv!=dv or dv==-1 else int(dv)
+        rows.append(d)
+    return {"total":total,"page":page,"pages":pages,"size":size,"rows":rows,"summary":summ}
+
 @app.get("/")
 def root():
     if HTML_FILE.exists(): return FileResponse(str(HTML_FILE))
