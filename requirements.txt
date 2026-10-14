@@ -10,3 +10,4 @@ duckdb
 python-calamine
 lxml
 xlsxwriter
+psycopg2-binary

@@ -164,3 +164,15 @@ It opens full screen with the airtel icon. Data is never cached on the phone.
 **Upload from a phone:** sign in as an admin → red upload button → pick the Excel/CSV
 from Files, Drive or WhatsApp downloads. Excel files over 8 MB are sent to the server
 as they are (the server streams them) so the phone does not run out of memory.
+
+## Staying free (no credit card)
+
+Render (free web service) + Supabase (free storage) cost nothing. Two free extras keep it smooth:
+
+1. **Supabase never pauses:** Supabase pauses free projects after about a week without
+   database activity. In Supabase click **Connect** → **Session pooler**, copy the URI
+   (put your database password in it) and add it in Render → Environment as
+   `SUPABASE_DB_URL`. The server then updates one tiny row (`rfai_keepalive`) twice a day.
+2. **No 1-minute wake-up:** Render's free server sleeps after 15 minutes. Create a free
+   job at https://cron-job.org (no card) that opens `https://YOUR-SITE.onrender.com/api/ping`
+   every 10 minutes. One always-on service fits in Render's 750 free hours a month.

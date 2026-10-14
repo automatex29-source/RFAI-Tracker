@@ -1539,12 +1539,35 @@ def api_user_delete(name:str):
             _load_users(); return JSONResponse({"error": f"Could not save: {e}"}, status_code=500)
     return {"ok": True}
 
+# ── Keep the free Supabase project awake ──────────────────────────────────────
+# Supabase pauses free projects after ~a week without *database* activity; this app
+# only uses its file storage. With SUPABASE_DB_URL set (Supabase → Connect →
+# Session pooler URI), the server writes one tiny row twice a day so it never pauses.
+SUPABASE_DB_URL=os.environ.get('SUPABASE_DB_URL','').strip().strip('"').strip("'")
+_keepalive={'last':None,'error':None}
+def _supabase_touch():
+    import psycopg2
+    with psycopg2.connect(SUPABASE_DB_URL, connect_timeout=15) as con, con.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS rfai_keepalive (id int PRIMARY KEY, at timestamptz, note text)")
+        cur.execute("INSERT INTO rfai_keepalive VALUES (1, now(), %s) ON CONFLICT (id) DO UPDATE SET at=now(), note=EXCLUDED.note",
+                    (f"rfai-tracker {_data_meta.get('srs','')} SRs",))
+    con.close()
+def _keepalive_loop():
+    while True:
+        try:
+            _supabase_touch(); _keepalive.update(last=datetime.now().strftime('%d-%b-%Y %H:%M'),error=None)
+            log.info("  Supabase keep-alive OK")
+        except Exception as e:
+            _keepalive['error']=str(e)[:300]; log.error(f"  Supabase keep-alive failed: {e}")
+        time.sleep(12*3600)
+
 @app.on_event("startup")
 def _startup_load():
     if _CLOUD_OFF:
         log.info("  Cloud copy switched off (CLOUD_DISABLED=1)"); return
     if _AUTH_ON: threading.Thread(target=_load_users, daemon=True).start()
     threading.Thread(target=load_stored_data, kwargs={'retries': 3}, daemon=True).start()
+    if SUPABASE_DB_URL: threading.Thread(target=_keepalive_loop, daemon=True).start()
 
 @app.post("/api/reload")
 def reload_data():
@@ -1639,7 +1662,8 @@ def config():
             "password_like_vars": env_names,
             "data_loaded": _df_cache is not None,
             "srs_loaded": len(_df_cache) if _df_cache is not None else 0,
-            "storage": _storage_status}
+            "storage": _storage_status,
+            "supabase_keepalive": ({"on":True,**_keepalive} if SUPABASE_DB_URL else {"on":False})}
 
 @app.get("/api/summary")
 def summary():

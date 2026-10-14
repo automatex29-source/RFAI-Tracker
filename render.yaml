@@ -20,5 +20,7 @@ services:
         sync: false
       - key: S3_REGION        # Supabase: the Region shown on its S3 settings page
         sync: false
+      - key: SUPABASE_DB_URL  # optional: Supabase → Connect → Session pooler URI; keeps the free project from pausing
+        sync: false
       - key: ADMIN_PASSWORD   # password of the built-in "admin" sign-in user (required to sign in)
         sync: false
