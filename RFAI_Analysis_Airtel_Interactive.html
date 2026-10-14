@@ -1365,6 +1365,32 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
         <div id="cc-score"></div>
       </section>
     </div>
+    <section class="mj-panel" id="vel-panel">
+      <div class="mj-ph">
+        <div class="mj-pic red"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
+        <div><h2>Circle velocity</h2><p id="vel-sub">PRI opened per circle · click any number for its trend and the SR list</p></div>
+      </div>
+      <div class="mjw-ctl vel-ctl">
+        <select id="vel-metric" onchange="velSet({metric:this.value})" aria-label="What to count">
+          <option value="pri_open" selected>PRI opened</option><option value="pri_close">PRI closed</option>
+          <option value="pri_stock">Open PRI (at period end)</option><option value="rfai">RFAI received</option>
+          <option value="final">Final RFAI</option><option value="onair">OnAir achieved</option><option value="rej">RFAI rejected</option>
+        </select>
+        <select id="vel-range" onchange="velRange(this.value)" aria-label="Period">
+          <option value="4w">Last 4 weeks</option><option value="8w" selected>Last 8 weeks</option><option value="12w">Last 12 weeks</option>
+          <option value="26w">Last 26 weeks</option><option value="30d">Last 30 days (daily)</option>
+          <option value="6m">Last 6 months (monthly)</option><option value="12m">Last 12 months (monthly)</option><option value="custom">Custom dates…</option>
+        </select>
+        <span class="mjw-custom" id="vel-custom" hidden>
+          <input type="date" id="vel-from" aria-label="From date"><span>to</span><input type="date" id="vel-to" aria-label="To date">
+          <button onclick="velApply()">Apply</button>
+        </span>
+        <span class="mjw-gran" id="vel-gran">
+          <button data-g="day" onclick="velSet({gran:'day'})">Day</button><button data-g="week" class="on" onclick="velSet({gran:'week'})">Week</button><button data-g="month" onclick="velSet({gran:'month'})">Month</button>
+        </span>
+      </div>
+      <div class="vel-wrap" id="vel-table"></div>
+    </section>
     <div class="cc-grid">
       <section class="cc-card">
         <button class="hm-tabletoggle" onclick="hmToggleTable('hm-months')">Table</button>
@@ -1386,6 +1412,12 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
     </div>
   </div>
   <div id="hm-tip" role="tooltip"></div>
+  <div id="vel-bg" onclick="velClose()"></div>
+  <aside id="vel-modal" role="dialog" aria-modal="true" aria-labelledby="vel-t">
+    <div class="ccm-h"><div><div class="ccm-e" id="vel-e">Circle velocity</div><div class="ccm-t" id="vel-t"></div></div>
+      <button class="ccm-x" onclick="velClose()" aria-label="Close">✕</button></div>
+    <div class="vel-b" id="vel-b"></div>
+  </aside>
   <div id="cc-modal-bg" onclick="ccCloseModal()"></div>
   <div id="cc-modal" role="dialog" aria-modal="true" aria-labelledby="cc-modal-t">
     <div class="ccm-h"><div><div class="ccm-e">Milestone · circle-wise</div><div class="ccm-t" id="cc-modal-t"></div></div>
@@ -4618,7 +4650,7 @@ const _charts={};
    its status / circle / ageing mix (click to narrow down), and a sortable,
    paged list of the SRs (click a row for the SR's full journey). */
 const _XP_ST={'OnAir':'#10b981','OnAir Pending':'#f59e0b','Open PRI':'#3b82f6','Rejected RFAI':'#ef4444','RFAI Pending':'#94a3b8'};
-const _XP_LBL={status:'Status',circle:'Circle',category:'Category',oem:'OEM',toco:'ToCo',month:'Month',aging:'Days',recent:'Recent',q:'Search'};
+const _XP_LBL={ev:'Milestone',dfrom:'From',dto:'To',status:'Status',circle:'Circle',category:'Category',oem:'OEM',toco:'ToCo',month:'Month',aging:'Days',recent:'Recent',q:'Search'};
 const _XP_REC={onair7:'OnAir in last 7 days',final7:'Final RFAI in last 7 days',pri7:'PRI closed in last 7 days',rfai7:'RFAI received in last 7 days'};
 const _XP_COLS=[['srNo','SR #'],['siteId','Site ID'],['circle','Circle'],['srStatus','Status'],['delay','Days'],['bPrj','Project'],
   ['category','Category'],['toco','ToCo'],['oem','OEM'],['rfaiNotice','Initial RFAI'],['finalRfai','Final RFAI'],['onAir','OnAir']];
@@ -4654,7 +4686,7 @@ function _xpQuery(extra){
 }
 async function exploreLoad(){
   document.getElementById('xp-title').textContent=_xpTitle();
-  const chips=Object.entries(_xp.f).map(([k,v])=>'<span class="xp-chip">'+(_XP_LBL[k]||k)+': <b>'+_hmEsc(k==='recent'?(_XP_REC[v]||v):k==='status'&&v==='pending'?'Pending (all)':v)+'</b>'+
+  const chips=Object.entries(_xp.f).map(([k,v])=>'<span class="xp-chip">'+(_XP_LBL[k]||k)+': <b>'+_hmEsc(k==='ev'?((VEL_M[v]||{}).t||v):k==='recent'?(_XP_REC[v]||v):k==='status'&&v==='pending'?'Pending (all)':v)+'</b>'+
     '<button onclick="exploreDrop(\''+k+'\')" aria-label="Remove '+(_XP_LBL[k]||k)+' filter">&#x2715;</button></span>').join('')+
     (_xp.q?'<span class="xp-chip">Search: <b>'+_hmEsc(_xp.q)+'</b><button onclick="_xp.q=\'\';document.getElementById(\'xp-q\').value=\'\';_xp.page=1;exploreLoad()" aria-label="Clear search">&#x2715;</button></span>':'');
   document.getElementById('xp-chips').innerHTML=chips||'<span class="xp-hint">No filters: every SR</span>';
@@ -5137,6 +5169,7 @@ function switchTab(tab){
   if(tab==='finimpact') renderFinImpact();
   if(tab==='home') renderHome();
   if(tab!=='home') ccCloseModal();
+  if(tab!=='home'&&typeof velClose==='function'&&document.getElementById('vel-modal')) velClose();
   _applyTheme();
   window.scrollTo(0,0);
 }
@@ -8983,7 +9016,7 @@ async function renderHome(){
     document.getElementById('cc-journey').innerHTML='<div class="hm-empty">No data loaded yet.</div>';
     _hmRenderNav(j); return;
   }
-  _mjKpis(h,j); _ccJourney(h,j); _ccWeekly(h); _ccScore(h); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
+  _mjKpis(h,j); _ccJourney(h,j); _ccWeekly(h); _ccScore(h); velLoad(); _hmRenderMonths(); _hmRenderAging(j); _hmRenderCircles(j); _hmRenderNav(j);
 }
 function mjToggleSearch(){ const f=document.getElementById('mj-search'); if(!f) return; f.classList.toggle('open'); if(f.classList.contains('open')) document.getElementById('hm-q').focus(); }
 function ccSetScope(v){ _ccCircle=v||''; _hmDash=null; _ccHome=null; renderHome(); }
@@ -9178,6 +9211,115 @@ async function mjwLoad(){
   try{ _mjw.data=await (await fetch(_B+'/api/momentum?'+q)).json(); _mjw.data.circle=_ccCircle; }catch(e){ _mjw.data=null; }
   _ccWeekly(_ccHome||{});
 }
+
+/* ── CIRCLE VELOCITY: milestone counts per circle per period, click for detail ── */
+const VEL_M={pri_open:{t:'PRI opened',bad:1},pri_close:{t:'PRI closed',bad:0},pri_stock:{t:'Open PRI',bad:1,stock:1},
+  rfai:{t:'RFAI received',bad:0},final:{t:'Final RFAI',bad:0},onair:{t:'OnAir achieved',bad:0},rej:{t:'RFAI rejected',bad:1}};
+let _vel={metric:'pri_open',gran:'week',from:'',to:'',range:'8w',data:null};
+function _velPreset(v){
+  const t=new Date(), b=new Date(t);
+  const m={'4w':['week',28],'8w':['week',56],'12w':['week',84],'26w':['week',182],'30d':['day',30],'6m':['month',183],'12m':['month',365]}[v];
+  if(!m) return null; b.setDate(b.getDate()-m[1]+1); return {gran:m[0],from:_iso(b),to:_iso(t)};
+}
+function velRange(v){
+  _vel.range=v; const c=document.getElementById('vel-custom');
+  if(v==='custom'){ c.hidden=false; const f=document.getElementById('vel-from'),t=document.getElementById('vel-to');
+    if(!t.value) t.value=_iso(new Date()); if(!f.value){ const d=new Date(); d.setDate(d.getDate()-55); f.value=_iso(d); } return; }
+  c.hidden=true; Object.assign(_vel,_velPreset(v)); velLoad();
+}
+function velApply(){
+  const f=document.getElementById('vel-from').value,t=document.getElementById('vel-to').value;
+  if(!f||!t){ showToast('e','Pick both dates'); return; }
+  const days=(new Date(t)-new Date(f))/864e5; Object.assign(_vel,{from:f,to:t,gran:days<=45?'day':days<=240?'week':'month'}); velLoad();
+}
+function velSet(o){ Object.assign(_vel,o); if(!_vel.from) Object.assign(_vel,_velPreset('8w'),o); velLoad(); }
+async function velLoad(){
+  const el=document.getElementById('vel-table'); if(!el) return;
+  document.querySelectorAll('#vel-gran button').forEach(b=>b.classList.toggle('on',b.dataset.g===_vel.gran));
+  const q=new URLSearchParams({metric:_vel.metric,gran:_vel.gran}); if(_vel.from) q.set('start',_vel.from); if(_vel.to) q.set('end',_vel.to);
+  try{ _vel.data=await (await fetch(_B+'/api/velocity?'+q)).json(); }catch(e){ _vel.data=null; }
+  _velRender();
+}
+function _velRender(){
+  const el=document.getElementById('vel-table'), j=_vel.data, M=VEL_M[_vel.metric];
+  if(!j||!j.labels||!j.labels.length){ el.innerHTML='<div class="hm-empty">No data.</div>'; return; }
+  const unit={day:'day',week:'7-day block',month:'month'}[j.gran];
+  document.getElementById('vel-sub').textContent=M.t+(M.stock?' at the end of each ':' per ')+unit+', by circle · trend = last 7 days vs the 7 before · click any number for its trend and SR list';
+  const rows=(_ccCircle?j.rows.filter(r=>r.circle===_ccCircle):j.rows);
+  const mx=Math.max(1,...rows.flatMap(r=>r.counts));
+  const cell=(v,ci,bi)=>{ const a=v?0.06+0.6*v/mx:0;
+    return '<td class="vc'+(v?'':' z')+(a>0.4?' hi':'')+'" style="--a:'+a.toFixed(3)+'" onclick="velDetail('+ci+','+bi+')" title="'+(v?'Click for trend and SRs':'')+'">'+(v?_hmN(v):'·')+'</td>'; };
+  const trend=(r)=>{ const d=r.last7-r.prev7; if(!d) return '<td class="vt">–</td>';
+    const up=d>0, good=M.bad?!up:up; return '<td class="vt '+(good?'g':'r')+'" title="Last 7 days '+r.last7+' vs '+r.prev7+' the week before">'+(up?'▲ ':'▼ ')+Math.abs(d)+'</td>'; };
+  const thin=Math.ceil(j.labels.length/16);
+  let h='<table class="vel-tbl"><thead><tr><th class="vl">Circle</th>'+j.labels.map((l,i)=>'<th>'+((i%thin===0||i===j.labels.length-1)?_hmEsc(l):'')+'</th>').join('')+
+    '<th class="vx">Last 7 d</th><th class="vx">Trend</th></tr></thead><tbody>';
+  rows.forEach((r,ci)=>{ const ri=j.rows.indexOf(r);
+    h+='<tr><td class="vl"><button onclick="velDetail('+ri+',-1)">'+_hmEsc(r.circle)+'</button></td>'+r.counts.map((v,bi)=>cell(v,ri,bi)).join('')+
+       '<td class="vx vc'+(r.last7?'':' z')+'" onclick="velDetail('+ri+',-2)">'+(r.last7?_hmN(r.last7):'·')+'</td>'+trend(r)+'</tr>'; });
+  if(!_ccCircle){ const t=j.total;
+    h+='<tr class="vtot"><td class="vl"><button onclick="velDetail(-1,-1)">All circles</button></td>'+t.counts.map((v,bi)=>'<td onclick="velDetail(-1,'+bi+')">'+_hmN(v)+'</td>').join('')+
+       '<td class="vx" onclick="velDetail(-1,-2)">'+_hmN(t.last7)+'</td>'+trend(t)+'</tr>'; }
+  el.innerHTML=h+'</tbody></table>';
+}
+let _velChart=null, _velCtx=null;
+async function velDetail(ri,bi){
+  const j=_vel.data; if(!j) return;
+  const circle=ri>=0?j.rows[ri].circle:'';
+  let from,to,per;
+  if(bi===-2){ const t=new Date(),b=new Date(t); b.setDate(b.getDate()-6); from=_iso(b); to=_iso(t); per='last 7 days'; }
+  else if(bi>=0){ from=j.starts[bi]; to=j.ends[bi]; per=_mjwFmt(from)+' – '+_mjwFmt(to); }
+  else { from=j.starts[0]; to=j.ends[j.ends.length-1]; per=_mjwFmt(from)+' – '+_mjwFmt(to); }
+  // short ranges: show a little context around them in the chart
+  let cf=from; if(bi>=0||bi===-2){ const d=new Date(to); d.setDate(d.getDate()-41); if(d<new Date(from)) cf=_iso(d); }
+  const M=VEL_M[_vel.metric];
+  _velCtx={circle,from,to,metric:_vel.metric,per};
+  document.getElementById('vel-e').textContent=M.t+' · '+per;
+  document.getElementById('vel-t').textContent=circle||'All circles';
+  const b=document.getElementById('vel-b'); b.innerHTML='<div class="hm-empty">Loading…</div>';
+  document.getElementById('vel-bg').style.display='block'; document.getElementById('vel-modal').classList.add('open');
+  let d; try{ d=await (await fetch(_B+'/api/velocity/detail?'+new URLSearchParams({metric:_vel.metric,circle,start:cf,end:to,sel_from:from,sel_to:to}))).json(); }catch(e){ d=null; }
+  if(!d||!d.labels){ b.innerHTML='<div class="hm-empty">Could not load.</div>'; return; }
+  // number for the clicked period itself
+  const inSel=d.labels.map((_,i)=>{ const x=new Date(d.start); x.setDate(x.getDate()+i); const s=_iso(x); return s>=from&&s<=to; });
+  const selTotal=d.total;
+  const sm=d.status_mix||{}, smT=Object.values(sm).reduce((a,b)=>a+b,0)||1;
+  const ST_C={'OnAir':'#10b981','OnAir Pending':'#f59e0b','Open PRI':'#3b82f6','Rejected RFAI':'#ef4444','RFAI Pending':'#94a3b8'};
+  const tiles=[[M.stock?'Open PRI at '+_mjwFmt(to):M.t+' in '+per,_hmN(selTotal)],
+    [M.stock?'Highest in period':'Average per day',M.stock?(d.peak?_hmN(d.peak.value)+' · '+d.peak.day:'—'):(d.avg_per_day!=null?d.avg_per_day:'—')],
+    ['Busiest day',d.peak&&!M.stock?_hmN(d.peak.value)+' · '+d.peak.day:'—']].filter(t=>!(M.stock&&t[0]==='Busiest day'));
+  if(d.pri_avg_days!=null||d.pri_open_now!=null){
+    tiles.push(['Avg PRI duration',d.pri_avg_days!=null?d.pri_avg_days+' d':'—'],['PRI still open',_hmN(d.pri_open_now||0)+(d.pri_oldest_open_days!=null?' · oldest '+d.pri_oldest_open_days+' d':'')]);
+  }
+  const bars=(arr,c)=>{ const mx=Math.max(1,...arr.map(x=>x.n)); return arr.map(x=>'<div class="vb"><span>'+_hmEsc(x.name)+'</span><i><b style="width:'+(x.n/mx*100)+'%;background:'+c+'"></b></i><em>'+_hmN(x.n)+'</em></div>').join(''); };
+  b.innerHTML='<div class="vel-tiles">'+tiles.map(t=>'<div><span>'+t[0]+'</span><b>'+t[1]+'</b></div>').join('')+'</div>'+
+    '<div class="vel-ch"><canvas id="vel-canvas"></canvas></div>'+
+    '<div class="vel-note">'+(M.stock?'Line: SRs with a PRI open on each day.':'Bars: per day · line: running total (right axis).')+' Shaded: the period you clicked.</div>'+
+    '<div class="vel-cols"><div><h4>Status of these SRs now</h4><div class="vel-stack">'+Object.entries(sm).map(([k,v])=>'<i style="width:'+(v/smT*100)+'%;background:'+(ST_C[k]||'#94a3b8')+'" title="'+k+': '+v+'"></i>').join('')+'</div>'+
+      Object.entries(sm).map(([k,v])=>'<div class="vb"><span><i class="dot" style="background:'+(ST_C[k]||'#94a3b8')+'"></i>'+k+'</span><em>'+_hmN(v)+' · '+Math.round(v/smT*100)+'%</em></div>').join('')+'</div>'+
+      '<div><h4>Top projects</h4>'+bars(d.top_projects||[],'#e40000')+'</div>'+
+      (d.by_circle?'<div><h4>By circle</h4>'+bars(d.by_circle,'#3b82f6')+'</div>':'')+'</div>'+
+    '<div class="vel-act"><button class="um-go" onclick="velOpenSrs()">Open these SRs</button><button class="vel-x" onclick="velExport()">Export Excel</button></div>';
+  if(window.Chart){
+    if(_velChart){ _velChart.destroy(); _velChart=null; }
+    const shade={id:'velShade',beforeDatasetsDraw(ch){ const x=ch.scales.x,a=ch.chartArea; const i0=inSel.indexOf(true), i1=inSel.lastIndexOf(true); if(i0<0) return;
+      const w=(x.getPixelForValue(1)-x.getPixelForValue(0))||8; const c=ch.ctx; c.save(); c.fillStyle='rgba(228,0,0,.07)';
+      c.fillRect(x.getPixelForValue(i0)-w/2,a.top,x.getPixelForValue(i1)-x.getPixelForValue(i0)+w,a.bottom-a.top); c.restore(); }};
+    const ds=M.stock?[{type:'line',label:'Open PRI',data:d.daily,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,pointRadius:0,tension:.25}]:
+      [{type:'bar',label:M.t+' per day',data:d.daily,backgroundColor:'#ef4444',borderRadius:3,yAxisID:'y'},
+       {type:'line',label:'Running total',data:d.cumulative,borderColor:'#475569',pointRadius:2,pointBackgroundColor:'#fff',borderWidth:2,tension:.2,yAxisID:'y2'}];
+    _velChart=new Chart(document.getElementById('vel-canvas'),{data:{labels:d.labels,datasets:ds},plugins:[shade],
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{position:'top',labels:{boxWidth:10,font:{size:11}}},rfaiLabels:false},
+        scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12,font:{size:10}}},y:{beginAtZero:true,ticks:{precision:0}},
+          ...(M.stock?{}:{y2:{position:'right',beginAtZero:true,grid:{display:false},ticks:{precision:0}}})}}});
+  }
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('vel-modal').classList.contains('open')) velClose(); });
+function velClose(){ document.getElementById('vel-modal').classList.remove('open'); document.getElementById('vel-bg').style.display='none'; }
+function _velParams(){ const c=_velCtx; const p={ev:c.metric}; if(c.metric!=='pri_stock') p.dfrom=c.from; p.dto=c.to; if(c.circle) p.circle=c.circle; return p; }
+function velOpenSrs(){ const c=_velCtx; velClose(); openExplore(_velParams(),VEL_M[c.metric].t+' · '+(c.circle||'All circles')+' · '+c.per,'home'); }
+function velExport(){ const c=_velCtx; const p=new URLSearchParams(Object.assign(_velParams(),{title:VEL_M[c.metric].t+' '+(c.circle||'All')+' '+c.per})); downloadXlsx(p); }
 function _ccWeekly(h){
   const el=document.getElementById('cc-weekly'); if(!el) return;
   if(_mjw.data&&_mjw.data.circle!==_ccCircle){ mjwLoad(); return; }   // circle changed: reload the chosen period
@@ -14057,6 +14199,42 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 .mjl .v{text-align:right;padding-top:6px}
 .mjl .v b{display:block;font-size:19px;font-weight:800;color:#16181f;font-variant-numeric:tabular-nums}
 .mjl .v small{font-size:11.5px;font-weight:700;color:var(--c)}
+
+/* circle velocity */
+.vel-wrap{overflow-x:auto;margin-top:4px}
+.vel-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.vel-tbl th{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6b5a5e;padding:8px 6px;text-align:center;white-space:nowrap;border-bottom:1px solid #f0dfe2}
+.vel-tbl th.vl,.vel-tbl td.vl{text-align:left;position:sticky;left:0;background:#fffafa;z-index:1}
+.vel-tbl td{padding:0;text-align:center;border-bottom:1px solid #f6eced;height:34px;font-variant-numeric:tabular-nums}
+.vel-tbl td.vl button{all:unset;cursor:pointer;font-weight:800;color:#16181f;padding:0 10px}
+.vel-tbl td.vl button:hover{color:#c4000f;text-decoration:underline}
+.vel-tbl td.vc{cursor:pointer;font-weight:700;color:#3a1218;background:rgba(228,0,0,var(--a,0));transition:outline .1s}
+.vel-tbl td.vc.hi{color:#fff}
+.vel-tbl td.vc.z{color:#c9ccd4;cursor:default;font-weight:400}
+.vel-tbl td.vc:not(.z):hover{outline:2px solid #e40000;outline-offset:-2px}
+.vel-tbl .vx{border-left:2px solid #f0dfe2;min-width:64px}
+.vel-tbl td.vt{font-weight:800;font-size:12px}.vel-tbl td.vt.r{color:#dc2626}.vel-tbl td.vt.g{color:#059669}
+.vel-tbl tr.vtot td{background:#fbeff0;font-weight:800;cursor:pointer;border-top:2px solid #f0dfe2}
+#vel-bg{position:fixed;inset:0;background:rgba(20,10,14,.35);z-index:950;display:none;backdrop-filter:blur(2px)}
+#vel-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-48%) scale(.98);opacity:0;pointer-events:none;width:880px;max-width:calc(100vw - 24px);max-height:calc(100vh - 32px);overflow:auto;
+  background:#fff;border-radius:20px;box-shadow:0 30px 80px rgba(80,10,20,.35);z-index:951;transition:all .18s}
+#vel-modal.open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%)}
+.vel-b{padding:14px 20px 20px}
+.vel-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.vel-tiles div{background:linear-gradient(180deg,#fff,#fdf6f6);border:1px solid #f3e4e6;border-radius:12px;padding:10px 12px;box-shadow:0 1px 2px rgba(120,20,30,.05)}
+.vel-tiles span{display:block;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#8a7075}
+.vel-tiles b{display:block;font-size:19px;font-weight:800;color:#16181f;margin-top:3px}
+.vel-ch{height:260px;position:relative}
+.vel-note{font-size:11px;color:#9aa0ad;margin:4px 0 12px}
+.vel-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.vel-cols h4{font-size:12px;font-weight:800;color:#16181f;margin:0 0 8px}
+.vel-stack{display:flex;height:10px;border-radius:6px;overflow:hidden;background:#f3e9ea;margin-bottom:8px}
+.vb{display:flex;align-items:center;gap:8px;font-size:12px;color:#3a3f4c;margin-bottom:5px}
+.vb span{min-width:80px;display:flex;align-items:center;gap:6px}.vb span i.dot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
+.vb i{flex:1;height:8px;border-radius:5px;background:#f3e9ea;overflow:hidden}.vb i b{display:block;height:100%;border-radius:5px}
+.vb em{font-style:normal;font-weight:700;margin-left:auto;font-variant-numeric:tabular-nums}
+.vel-act{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+.vel-x{font:inherit;font-size:14px;font-weight:700;border:1px solid #ecdfe1;background:#fff;border-radius:10px;padding:10px 16px;cursor:pointer}
 
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}

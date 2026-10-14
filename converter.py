@@ -1768,6 +1768,119 @@ def filter_data(
     return {"html":html,"total":total,"page":page,"pages":pages,
             "start":s+1,"end":min(s+page_size,total),"months":show_months}
 
+# ── Circle velocity: milestone events per circle per period ──────────────────
+_VEL_COL={'rfai':'rfaiNotice','final':'finalRfai','pri_open':'priFirst','pri_close':'priLast',
+          'onair':'onAir','rej':'rfaiRej'}
+def _dcol(df,col):
+    if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
+    return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
+def _periods(start,end,gran,default_weeks=8):
+    today=pd.Timestamp(date.today())
+    try: e=pd.Timestamp(end).normalize() if end else today
+    except Exception: e=today
+    try: b=pd.Timestamp(start).normalize() if start else None
+    except Exception: b=None
+    gran=gran if gran in ('day','week','month') else 'week'
+    if gran=='week':
+        # 7-day blocks ending on the end date (newest block = last 7 days)
+        if b is None: b=e-pd.Timedelta(days=7*default_weeks-1)
+        n=max(1,min(156,-(-((e-b).days+1)//7)))
+        starts=[e-pd.Timedelta(days=7*(n-i)-1) for i in range(n)]
+        ends=[x+pd.Timedelta(days=6) for x in starts]; lab=[x.strftime('%d %b') for x in starts]
+    elif gran=='day':
+        if b is None: b=e-pd.Timedelta(days=29)
+        if (e-b).days>366: b=e-pd.Timedelta(days=366)
+        starts=list(pd.date_range(b,e,freq='D')); ends=starts; lab=[x.strftime('%d %b') for x in starts]
+    else:
+        if b is None: b=(e-pd.DateOffset(months=5)).replace(day=1)
+        starts=list(pd.date_range(b.replace(day=1),e,freq='MS'))[-60:]
+        ends=[min(x+pd.offsets.MonthEnd(0),e) for x in starts]; lab=[x.strftime("%b'%y") for x in starts]
+    return starts,ends,lab,gran
+
+@app.get("/api/velocity")
+def velocity(metric:str=Query(default='pri_open'), start:str=Query(default=''), end:str=Query(default=''),
+             gran:str=Query(default='week')):
+    """Per circle and period: how many SRs reached a milestone (or, for pri_stock,
+    how many had a PRI open at the end of the period)."""
+    df=_df_full_cache
+    if df is None or not len(df): return {"labels":[],"rows":[]}
+    starts,ends,lab,gran=_periods(start,end,gran)
+    circ=df['circle'].astype(str).to_numpy()
+    today=pd.Timestamp(date.today())
+    if metric=='pri_stock':
+        pf=_dcol(df,'priFirst'); pl=_dcol(df,'priLast'); oa=_dcol(df,'onAir')
+        def at(t): return ((pf<=t)&~(pl<=t)&~(oa<=t)).to_numpy()
+        cols=[at(min(x,today)) for x in ends]
+        last7=at(today); prev7=at(today-pd.Timedelta(days=7))
+    else:
+        d=_dcol(df,_VEL_COL.get(metric,'priFirst'))
+        cols=[((d>=a)&(d<=b)).to_numpy() for a,b in zip(starts,ends)]
+        last7=((d>today-pd.Timedelta(days=7))&(d<=today)).to_numpy()
+        prev7=((d>today-pd.Timedelta(days=14))&(d<=today-pd.Timedelta(days=7))).to_numpy()
+    names=sorted(c for c in set(circ) if c and c!='nan')
+    rows=[]
+    for c in names:
+        m=circ==c
+        rows.append({"circle":c,"counts":[int((m&x).sum()) for x in cols],"last7":int((m&last7).sum()),"prev7":int((m&prev7).sum())})
+    rows.sort(key=lambda r:-(sum(r['counts']) if metric!='pri_stock' else r['counts'][-1]))
+    tot={"counts":[int(x.sum()) for x in cols],"last7":int(last7.sum()),"prev7":int(prev7.sum())}
+    return {"labels":lab,"starts":[x.strftime('%Y-%m-%d') for x in starts],"ends":[min(x,today).strftime('%Y-%m-%d') for x in ends],
+            "gran":gran,"metric":metric,"rows":rows,"total":tot}
+
+@app.get("/api/velocity/detail")
+def velocity_detail(metric:str=Query(default='pri_open'), circle:str=Query(default=''),
+                    start:str=Query(default=''), end:str=Query(default=''),
+                    sel_from:str=Query(default=''), sel_to:str=Query(default='')):
+    """Daily series + running total over start..end (chart), and key facts for the
+    selected period sel_from..sel_to (defaults to the whole range)."""
+    df=_df_full_cache
+    if df is None or not len(df): return {}
+    if circle: df=df[df['circle'].astype(str)==circle]
+    today=pd.Timestamp(date.today())
+    try: e=pd.Timestamp(end).normalize() if end else today
+    except Exception: e=today
+    try: b=pd.Timestamp(start).normalize() if start else e-pd.Timedelta(days=55)
+    except Exception: b=e-pd.Timedelta(days=55)
+    if (e-b).days>730: b=e-pd.Timedelta(days=730)
+    days=pd.date_range(b,e,freq='D')
+    st=df['srStatus'].astype(str)
+    out={"circle":circle or 'All circles',"metric":metric,"start":b.strftime('%Y-%m-%d'),"end":e.strftime('%Y-%m-%d'),
+         "labels":[x.strftime('%d %b') for x in days]}
+    pf=_dcol(df,'priFirst'); pl=_dcol(df,'priLast'); oa=_dcol(df,'onAir')
+    try: sb=pd.Timestamp(sel_from).normalize() if sel_from else b
+    except Exception: sb=b
+    try: se=pd.Timestamp(sel_to).normalize() if sel_to else e
+    except Exception: se=e
+    insel=[(x>=sb)&(x<=se) for x in days]
+    if metric=='pri_stock':
+        vals=[int(((pf<=t)&~(pl<=t)&~(oa<=t)).sum()) for t in days]
+        out.update(daily=vals,cumulative=None)
+        sel=((pf<=se)&~(pl<=se)&~(oa<=se)); out["total"]=int(sel.sum())
+    else:
+        d=_dcol(df,_VEL_COL.get(metric,'priFirst'))
+        cnt=d[(d>=b)&(d<=e)].dt.normalize().value_counts()
+        vals=[int(cnt.get(x,0)) for x in days]
+        out.update(daily=vals,cumulative=[int(v) for v in np.cumsum(vals)])
+        sel=(d>=sb)&(d<=se); out["total"]=int(sel.sum())
+    sub=df[sel.to_numpy()]
+    sv=[v for v,i in zip(vals,insel) if i]; sd=[x for x,i in zip(days,insel) if i]
+    out["avg_per_day"]=round(out['total']/max(1,len(sv)),1) if metric!='pri_stock' else None
+    if sv:
+        k=int(np.argmax(sv)); out["peak"]={"day":sd[k].strftime('%d %b %Y'),"value":sv[k]}
+    out["status_mix"]={k:int(v) for k,v in sub['srStatus'].astype(str).value_counts().items() if k and k!='nan'}
+    out["top_projects"]=[{"name":str(k),"n":int(v)} for k,v in sub['bPrj'].astype(str).value_counts().head(6).items() if k and k!='nan'] if 'bPrj' in sub else []
+    if metric in ('pri_open','pri_close','pri_stock'):
+        pdays=pd.to_numeric(sub.get('priDays'),errors='coerce') if 'priDays' in sub else pd.Series(dtype=float)
+        closed=pdays[pdays>0]
+        out["pri_avg_days"]=round(float(closed.mean()),1) if len(closed) else None
+        openmask=(~(pl<=today)&(pf<=today)&~(oa<=today))[sel]
+        age=(today-pf[sel][openmask]).dt.days
+        out["pri_open_now"]=int(openmask.sum()); out["pri_oldest_open_days"]=int(age.max()) if len(age) else None
+    if circle=='' :
+        g=sub['circle'].astype(str).value_counts()
+        out["by_circle"]=[{"name":str(k),"n":int(v)} for k,v in g.head(12).items() if k and k!='nan']
+    return out
+
 @app.get("/api/momentum")
 def momentum(circle:str=Query(default=''), start:str=Query(default=''), end:str=Query(default=''),
              gran:str=Query(default='week')):
@@ -1997,6 +2110,7 @@ def drill_data(
 def explore(status:str=Query(default=''), circle:str=Query(default=''), category:str=Query(default=''),
             oem:str=Query(default=''), toco:str=Query(default=''), month:str=Query(default=''),
             aging:str=Query(default=''), recent:str=Query(default=''), q:str=Query(default=''),
+            ev:str=Query(default=''), dfrom:str=Query(default=''), dto:str=Query(default=''),
             sort:str=Query(default='delay'), dir:str=Query(default='desc'),
             page:int=Query(default=1), size:int=Query(default=50)):
     """SR Explorer: the SRs behind any number clicked on Home or the Dashboard,
@@ -2024,6 +2138,15 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
             d=pd.to_datetime(df[cname].astype(str),format='%d-%b-%Y',errors='coerce')
             today=pd.Timestamp(date.today())
             m&=((d>today-pd.Timedelta(days=7))&(d<=today)).to_numpy()
+    if ev and (ev in _VEL_COL or ev=='pri_stock'):
+        try:
+            b_=pd.Timestamp(dfrom) if dfrom else pd.Timestamp('1900-01-01'); e_=pd.Timestamp(dto) if dto else pd.Timestamp(date.today())
+            if ev=='pri_stock':
+                pf=_dcol(df,'priFirst'); pl=_dcol(df,'priLast'); oa=_dcol(df,'onAir')
+                m&=((pf<=e_)&~(pl<=e_)&~(oa<=e_)).to_numpy()
+            else:
+                d=_dcol(df,_VEL_COL[ev]); m&=((d>=b_)&(d<=e_)).to_numpy()
+        except Exception: pass
     if q:
         ql=q.strip().lower()
         m&=(pd.Series(col('srNo')).str.lower().str.contains(ql,regex=False).to_numpy()
@@ -2101,6 +2224,14 @@ def _xl_filter(df, p):
         lo,hi={'0-30':(0,30),'30-60':(31,60),'60-90':(61,90),'>90':(91,10**6),'>30':(31,10**6)}.get(p['aging'],(0,10**6))
         dv=pd.to_numeric(df['delay'],errors='coerce').fillna(-1)
         df=df[(dv>=lo)&(dv<=hi)]
+    ev=p.get('ev')
+    if ev and (ev in _VEL_COL or ev=='pri_stock'):
+        b_=pd.Timestamp(p.get('dfrom') or '1900-01-01'); e_=pd.Timestamp(p.get('dto') or date.today())
+        if ev=='pri_stock':
+            pf=_dcol(df,'priFirst'); pl=_dcol(df,'priLast'); oa=_dcol(df,'onAir')
+            df=df[(pf<=e_)&~(pl<=e_)&~(oa<=e_)]
+        else:
+            d=_dcol(df,_VEL_COL[ev]); df=df[(d>=b_)&(d<=e_)]
     if p.get('recent'):
         cname={'onair7':'onAir','final7':'finalRfai','pri7':'priLast','rfai7':'rfaiNotice'}.get(p['recent'])
         if cname and cname in df.columns:
