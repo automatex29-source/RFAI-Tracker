@@ -856,6 +856,20 @@ html,body{overflow-x:hidden}
 .mjw .g.pe .bar{background:linear-gradient(180deg,#8c50c8,#7c3aed);box-shadow:0 0 16px rgba(194,111,255,0.35)}
 .mjw .g:hover .bar{filter:brightness(1.2)}
 .mjw-x{display:flex;gap:14px;padding:6px 6px 0}.mjw-x span{flex:1;text-align:center;font-size:10.5px;color:#646c84;white-space:nowrap;overflow:hidden}
+.mjw.mid,.mjw-x.mid{gap:6px}.mjw.dense,.mjw-x.dense{gap:2px}
+.mjw.mid .val{font-size:10px}.mjw.dense .val{display:none}
+.mjw.dense .bar{width:86%;border-radius:3px 3px 0 0}
+.mjw-x.mid span,.mjw-x.dense span{overflow:visible;font-size:10px}
+.mjw-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 8px}
+.mjw-ctl select,.mjw-custom input{font:inherit;font-size:12.5px;font-weight:600;color:#1a1d24;background:#fff;border:1px solid #ecdfe1;border-radius:10px;padding:6px 10px;box-shadow:0 1px 2px rgba(120,20,30,.05)}
+.mjw-ctl select:focus,.mjw-custom input:focus{outline:none;border-color:#e40000;box-shadow:0 0 0 3px rgba(228,0,0,.12)}
+.mjw-custom{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#6b7180}
+.mjw-custom[hidden]{display:none}
+.mjw-custom button{font:inherit;font-size:12.5px;font-weight:700;color:#fff;background:linear-gradient(180deg,#f01818,#d40000);border:none;border-radius:10px;padding:7px 14px;cursor:pointer}
+.mjw-gran{display:inline-flex;margin-left:auto;padding:3px;border-radius:999px;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.06)}
+.mjw-gran button{border:none;background:none;font:inherit;font-size:12px;font-weight:700;color:#5b6170;padding:5px 12px;border-radius:999px;cursor:pointer}
+.mjw-gran button.on{background:#fff;color:#c4000f;box-shadow:0 1px 3px rgba(120,20,30,.15)}
+@media(max-width:700px){.mjw-gran{margin-left:0}}
 .mjw-t{font-size:12px;color:#4c546b;margin-top:10px}.mjw-t b{color:#000000}
 /* scorecard */
 .mjs{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
@@ -1321,8 +1335,24 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
       <section class="mj-panel mj-half">
         <div class="mj-ph">
           <div class="mj-pic red"><svg viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="18" y1="20" x2="18" y2="4"/></svg></div>
-          <div><h2>Weekly momentum</h2><p id="mj-wk-sub">SRs going OnAir per week · last 12 weeks</p></div>
+          <div><h2>Momentum</h2><p id="mj-wk-sub">SRs going OnAir per week · last 12 weeks</p></div>
           <div class="mj-seg"><button id="mj-wk-on" class="on" onclick="mjSetWeekly('on')"><i></i>OnAir</button><button id="mj-wk-pe" onclick="mjSetWeekly('pe')"><i></i>Pending</button></div>
+        </div>
+        <div class="mjw-ctl" role="group" aria-label="Period">
+          <select id="mjw-range" onchange="mjwRange(this.value)" aria-label="Period">
+            <option value="4w">Last 4 weeks</option><option value="12w" selected>Last 12 weeks</option>
+            <option value="26w">Last 26 weeks</option><option value="52w">Last 52 weeks</option>
+            <option value="30d">Last 30 days (daily)</option><option value="6m">Last 6 months (monthly)</option>
+            <option value="12m">Last 12 months (monthly)</option><option value="ytd">This year</option>
+            <option value="custom">Custom dates…</option>
+          </select>
+          <span class="mjw-custom" id="mjw-custom" hidden>
+            <input type="date" id="mjw-from" aria-label="From date"><span>to</span><input type="date" id="mjw-to" aria-label="To date">
+            <button onclick="mjwApply()">Apply</button>
+          </span>
+          <span class="mjw-gran" id="mjw-gran">
+            <button data-g="day" onclick="mjwGran('day')">Day</button><button data-g="week" class="on" onclick="mjwGran('week')">Week</button><button data-g="month" onclick="mjwGran('month')">Month</button>
+          </span>
         </div>
         <div id="cc-weekly"></div>
       </section>
@@ -9111,18 +9141,61 @@ function _ccJourneyList(N,tot){
 (function(){ let w=window.innerWidth;
   window.addEventListener('resize',()=>{ const n=window.innerWidth; if((w<=700)!==(n<=700)&&_activeTab==='home'&&_ccHome) _ccJourney(_ccHome,_hmDash||{}); w=n; });
 })();
+
+/* Weekly momentum: period picker (presets, custom dates, day/week/month) */
+let _mjw={range:'12w',gran:'week',from:'',to:'',data:null};
+const _iso=d=>d.toISOString().slice(0,10);
+function _mjwPreset(v){
+  const t=new Date(), b=new Date(t);
+  const m={'4w':['week',28],'12w':['week',84],'26w':['week',182],'52w':['week',364],'30d':['day',30],'6m':['month',183],'12m':['month',365]}[v];
+  if(m){ b.setDate(b.getDate()-m[1]+1); return {gran:m[0],from:_iso(b),to:_iso(t)}; }
+  if(v==='ytd') return {gran:(t.getMonth()>=3?'month':'week'),from:t.getFullYear()+'-01-01',to:_iso(t)};
+  return null;
+}
+function mjwRange(v){
+  _mjw.range=v; const c=document.getElementById('mjw-custom');
+  if(v==='custom'){
+    c.hidden=false;
+    const f=document.getElementById('mjw-from'), t=document.getElementById('mjw-to');
+    if(!t.value) t.value=_iso(new Date());
+    if(!f.value){ const d=new Date(); d.setDate(d.getDate()-89); f.value=_iso(d); }
+    return;
+  }
+  c.hidden=true; const p=_mjwPreset(v); Object.assign(_mjw,p); _mjwSeg(); mjwLoad();
+}
+function _mjwFmt(d){ try{ return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }catch(e){ return d; } }
+function mjwApply(){
+  const f=document.getElementById('mjw-from').value, t=document.getElementById('mjw-to').value;
+  if(!f||!t){ showToast('e','Pick both dates'); return; }
+  _mjw.from=f; _mjw.to=t;
+  const days=(new Date(t)-new Date(f))/864e5;
+  _mjw.gran=days<=45?'day':days<=200?'week':'month'; _mjwSeg(); mjwLoad();
+}
+function mjwGran(g){ _mjw.gran=g; _mjwSeg(); if(!_mjw.from){ Object.assign(_mjw,_mjwPreset('12w'),{gran:g}); } mjwLoad(); }
+function _mjwSeg(){ document.querySelectorAll('#mjw-gran button').forEach(b=>b.classList.toggle('on',b.dataset.g===_mjw.gran)); }
+async function mjwLoad(){
+  const q=new URLSearchParams({start:_mjw.from,end:_mjw.to,gran:_mjw.gran}); if(_ccCircle) q.set('circle',_ccCircle);
+  try{ _mjw.data=await (await fetch(_B+'/api/momentum?'+q)).json(); _mjw.data.circle=_ccCircle; }catch(e){ _mjw.data=null; }
+  _ccWeekly(_ccHome||{});
+}
 function _ccWeekly(h){
   const el=document.getElementById('cc-weekly'); if(!el) return;
-  const w=h.weekly; if(!w){el.innerHTML='<div class="hm-empty">No weekly data.</div>';return;}
+  if(_mjw.data&&_mjw.data.circle!==_ccCircle){ mjwLoad(); return; }   // circle changed: reload the chosen period
+  const custom=_mjw.data&&_mjw.data.labels;
+  const w=custom?_mjw.data:h.weekly; if(!w||!w.labels||!w.labels.length){el.innerHTML='<div class="hm-empty">No data for this period.</div>';return;}
   const pe=_mjWk==='pe', arr=pe?(w.pending||[]):w.onair, max=Math.max(1,...arr);
+  const unit={day:'day',week:'week',month:'month'}[custom?w.gran:'week'];
+  const per=custom?(document.getElementById('mjw-range').selectedOptions[0].textContent.replace(/ \(.*\)/,'').replace('Custom dates…',_mjwFmt(w.start)+' – '+_mjwFmt(w.end))):'Last 12 weeks';
   const sub=document.getElementById('mj-wk-sub');
-  if(sub) sub.textContent=pe?'SRs pending at the end of each week · last 12 weeks':'SRs going OnAir per week · last 12 weeks';
-  el.innerHTML='<div class="mjw">'+arr.map((v,i)=>{
-      const tip='<b>Week of '+_hmEsc(w.labels[i])+'</b><br>'+(pe?'Pending at week end: ':'Went OnAir: ')+_hmN(v)+(pe?'':'<br>RFAI received: '+_hmN(w.rfai[i]));
+  if(sub) sub.textContent=(pe?'SRs pending at the end of each '+unit:'SRs going OnAir per '+unit)+' · '+per;
+  const thin=Math.ceil(w.labels.length/14);
+  const dense=arr.length>26?' dense':arr.length>14?' mid':'';
+  el.innerHTML='<div class="mjw'+dense+'">'+arr.map((v,i)=>{
+      const tip='<b>'+(unit==='week'?'Week of ':'')+_hmEsc(w.labels[i])+'</b><br>'+(pe?'Pending at '+unit+' end: ':'Went OnAir: ')+_hmN(v)+(pe?'':'<br>RFAI received: '+_hmN(w.rfai[i]));
       return '<div class="g'+(pe?' pe':'')+(i===arr.length-1?' last':'')+'" data-tip="'+_hmEsc(tip)+'"><span class="val">'+_hmN(v)+'</span><div class="bar" style="height:'+Math.max(1.5,v/max*100)+'%"></div></div>';
     }).join('')+'</div>'+
-    '<div class="mjw-x">'+w.labels.map(l=>'<span>'+_hmEsc(l)+'</span>').join('')+'</div>'+
-    '<div class="mjw-t">'+(pe?'Now pending: <b>'+_hmN(arr[arr.length-1])+'</b>':'12 weeks: <b>'+_hmN(arr.reduce((a,b)=>a+b,0))+'</b> SRs went OnAir · <b>'+_hmN(w.rfai.reduce((a,b)=>a+b,0))+'</b> RFAI received')+'</div>';
+    '<div class="mjw-x'+dense+'">'+w.labels.map((l,i)=>'<span>'+((i%thin===0||i===w.labels.length-1)?_hmEsc(l):'')+'</span>').join('')+'</div>'+
+    '<div class="mjw-t">'+(pe?'Pending at the end: <b>'+_hmN(arr[arr.length-1])+'</b>':per+': <b>'+_hmN(arr.reduce((a,b)=>a+b,0))+'</b> SRs went OnAir · <b>'+_hmN(w.rfai.reduce((a,b)=>a+b,0))+'</b> RFAI received')+'</div>';
   el.querySelectorAll('[data-tip]').forEach(g=>{
     g.addEventListener('mousemove',e=>_hmTip(e,g.getAttribute('data-tip')));
     g.addEventListener('mouseleave',e=>_hmTip(e,null));

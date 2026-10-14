@@ -1768,6 +1768,54 @@ def filter_data(
     return {"html":html,"total":total,"page":page,"pages":pages,
             "start":s+1,"end":min(s+page_size,total),"months":show_months}
 
+@app.get("/api/momentum")
+def momentum(circle:str=Query(default=''), start:str=Query(default=''), end:str=Query(default=''),
+             gran:str=Query(default='week')):
+    """OnAir achieved, RFAI received and SRs pending, per day / week / month, for any date range."""
+    df=_df_full_cache
+    if df is None or not len(df): return {"labels":[]}
+    if circle: df=df[df['circle'].astype(str)==circle]
+    today=pd.Timestamp(date.today())
+    try: e=pd.Timestamp(end) if end else today
+    except Exception: e=today
+    try: b=pd.Timestamp(start) if start else e-pd.Timedelta(weeks=12)
+    except Exception: b=e-pd.Timedelta(weeks=12)
+    if b>e: b,e=e,b
+    gran=gran if gran in ('day','week','month') else 'week'
+    if gran=='day':
+        b=b.normalize(); e=e.normalize()
+        if (e-b).days>366: b=e-pd.Timedelta(days=366)
+        starts=list(pd.date_range(b,e,freq='D')); lab=lambda x:x.strftime('%d %b')
+        nxt=lambda x:x+pd.Timedelta(days=1)
+    elif gran=='week':
+        b=(b-pd.Timedelta(days=b.weekday())).normalize()
+        if (e-b).days>7*156: b=(e-pd.Timedelta(weeks=156)); b=(b-pd.Timedelta(days=b.weekday())).normalize()
+        starts=list(pd.date_range(b,e,freq='7D')); lab=lambda x:x.strftime('%d %b')+("'"+x.strftime('%y') if (e-b).days>330 else '')
+        nxt=lambda x:x+pd.Timedelta(days=7)
+    else:
+        b=b.replace(day=1).normalize()
+        starts=list(pd.date_range(b,e,freq='MS')); lab=lambda x:x.strftime("%b'%y")
+        nxt=lambda x:(x+pd.offsets.MonthBegin(1))
+    starts=starts[-200:]
+    if not starts: return {"labels":[]}
+    def dt(col):
+        if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
+        return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
+    d_rfai=dt('rfaiNotice'); d_oa=dt('onAir'); d_rej=dt('rfaiRej')
+    st=df['srStatus'].astype(str).to_numpy(); isrej=(st=='Rejected RFAI')
+    edges=[x for x in starts]+[nxt(starts[-1])]
+    def counts(d):
+        v=d.dropna(); v=v[(v>=edges[0])&(v<edges[-1])]
+        idx=np.searchsorted(np.array(edges[1:],dtype='datetime64[ns]'),v.to_numpy(dtype='datetime64[ns]'),side='right')
+        return [int(x) for x in np.bincount(idx,minlength=len(starts))[:len(starts)]]
+    pend=[]
+    for x in starts:
+        en=min(nxt(x)-pd.Timedelta(days=1),today)
+        sc=(d_rfai<=en).to_numpy(); oa=(d_oa<=en).to_numpy(); rj=isrej&(d_rej<=en).to_numpy()
+        pend.append(int((sc&~oa&~rj).sum()))
+    return {"labels":[lab(x) for x in starts],"onair":counts(d_oa),"rfai":counts(d_rfai),"pending":pend,
+            "gran":gran,"start":edges[0].strftime('%Y-%m-%d'),"end":min(edges[-1]-pd.Timedelta(days=1),e).strftime('%Y-%m-%d')}
+
 @app.get("/api/home")
 def home_stats(circle:str=Query(default='')):
     """Milestone journey, recent movement, weekly momentum and circle scorecard
