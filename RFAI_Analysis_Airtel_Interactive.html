@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#e40000">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RFAI Tracker">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>RFAI Analysis — Monthly Exit Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -395,7 +402,9 @@ tbody tr:hover{background:#fff8f8!important}
 .sit-stat:hover{background:var(--surf2)!important}
 .sit-stat.active{background:var(--ac-lt)!important;box-shadow:inset 0 -3px 0 var(--ac)}
 .toast{position:fixed;bottom:18px;right:18px;background:var(--surf);border:1px solid var(--bdr);border-radius:10px;padding:11px 15px;font-size:12px;color:var(--tx);display:flex;align-items:center;gap:9px;box-shadow:var(--sh2);transform:translateY(14px);opacity:0;transition:all .22s;z-index:9999;max-width:400px}
-.toast.show{transform:translateY(0);opacity:1}
+.toast{pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1;pointer-events:auto}
+@media(max-width:700px){.toast{left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom))}}
 .tico{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
 .ts{background:var(--gn-bg);color:var(--gn)}.te{background:var(--rd-bg);color:var(--rd)}
 .fchp{font-family:var(--mn);font-size:11px;color:var(--tx2);background:var(--surf2);border:1px solid var(--bdr);border-radius:20px;padding:4px 10px;max-width:min(440px,40vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1148,7 +1157,7 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
         <span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;font-size:11px;color:#64748b;font-weight:600">.xls</span>
         <span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;font-size:11px;color:#64748b;font-weight:600">.csv</span>
       </div>
-      <input type="file" id="fin" multiple accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFiles(this.files)"/>
+      <input type="file" id="fin" multiple accept=".xlsx,.xls,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="handleFiles(this.files)"/>
     </div>
     <div id="up-progress" style="display:none;margin-top:20px">
       <div style="display:flex;justify-content:space-between;margin-bottom:5px">
@@ -1246,6 +1255,14 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
 </style>
 <style>#dropzone.dg{border-color:#3b82f6!important;background:#eff6ff!important;}</style>
 <div id="app">
+<nav class="bnav" id="bnav" aria-label="Sections">
+  <button data-t="home" onclick="switchTab('home')"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button data-t="table" onclick="switchTab('table')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>Journey</button>
+  <button data-t="dash" onclick="switchTab('dash')"><svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg>Dashboard</button>
+  <button data-t="mgmt" onclick="switchTab('mgmt')"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Reports</button>
+  <button data-t="finimpact" onclick="switchTab('finimpact')"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Cost</button>
+</nav>
+
   <!-- TAB BAR -->
   <div class="tabbar" id="tabbar">
     <button class="tab active" id="tab-home" onclick="switchTab('home')">
@@ -1828,7 +1845,7 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
     <div style="display:flex;min-height:calc(100vh - 165px)">
 
       <!-- SIDEBAR — navigate between the 3 tables -->
-      <div style="width:72px;background:#1a1a2e;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:165px;max-height:calc(100vh - 165px);overflow-y:auto">
+      <div id="mg-rail" style="width:72px;background:#1a1a2e;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:165px;max-height:calc(100vh - 165px);overflow-y:auto">
         <div style="font-size:7px;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;text-align:center">TABLES</div>
 
         <!-- Table 1 nav -->
@@ -1982,7 +1999,7 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
         <span style="font-size:10px;padding:2px 8px;background:#dcfce7;border:1px solid #6ee7b7;border-radius:20px;color:#065f46;font-weight:600;font-family:monospace">On Air Date</span>
       </div>
     </div>
-    <input type="file" id="oa-fin" accept=".xlsx,.xls,.csv" style="display:none" onchange="oaHandleFile(this.files[0]);this.value=''">
+    <input type="file" id="oa-fin" accept=".xlsx,.xls,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="oaHandleFile(this.files[0]);this.value=''">
 
     <!-- Result / analysis panel -->
     <div id="oa-result" style="display:none;margin-top:16px"></div>
@@ -5080,6 +5097,7 @@ function switchTab(tab){
   document.getElementById('finimpact-panel').style.display=tab==='finimpact'?'block':'none';
   document.getElementById('mgmt-panel').style.display=tab==='mgmt'?'block':'none';
   const xpP=document.getElementById('explore-panel'); if(xpP) xpP.style.display=tab==='explore'?'block':'none';
+  document.querySelectorAll('#bnav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
   if(tab==='dash')  _renderDashFromPython();
   if(tab==='fin')   _renderFinFromPython();
   if(tab==='mgmt')  { _mgRender(); }
@@ -8724,7 +8742,9 @@ async function _uploadToPython(files){
   const conv=[];
   for(let i=0;i<files.length;i++){
     const f=files[i];
-    if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)){
+    // phones have little memory: big Excel files go to the server as they are (it streams them)
+    const _phone=matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+    if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name) && !(_phone && f.size>8e6)){
       _setProg(3+Math.round(i/files.length*7),'Preparing '+f.name+' in your browser…','');
       await new Promise(r=>setTimeout(r,30));               // let the progress text paint
       try{ conv.push(await _excelToCsvFile(f)); }
@@ -9020,7 +9040,7 @@ function _ccJourney(h,j){
      co:{t:'Open PRI',b:_hmN(priOpen)+' blocking OnAir'+sep+_hmN(h.pri_ever)+' had PRI'}},
     {t:'Waiting OnAir',d:'RFAI done, not yet on air',v:oaPend,c:'#f59e0b',ic:'hourglass',f:c=>Math.max(0,c.pending-c.pri_open),go:"exploreFromHome({status:'OnAir Pending'})",
      below:[]},
-    {t:'Over 30 days',d:'pending since Final RFAI',v:h.pending_30||0,c:'#f97316',ic:'clock',f:c=>c.pending_30,go:"switchTab('mgmt');setTimeout(()=>{try{setMgmtTable(2)}catch(e){}},400)",
+    {t:'Over 30 days',d:'pending since Final RFAI',v:h.pending_30||0,c:'#f97316',ic:'clock',f:c=>c.pending_30,go:"exploreFromHome({status:'pending',aging:'>30'},'Pending over 30 days')",
      co:{t:'Overdue',b:_hmN(h.pending_30)+' over 30 d ('+Math.round((h.pending_30||0)/Math.max(1,h.pending)*100)+'%)'+sep+_hmN(h.pending_90)+' over 90 d'}},
   ]:[
     {t:'SRs in scope',d:'all SRs with an RFAI date',v:tot,c:'#ff2d55',ic:'doc',start:true,pill:'Total SRs',f:c=>c.total,go:"exploreFromHome({})",
@@ -9036,6 +9056,8 @@ function _ccJourney(h,j){
      co:{t:'Avg RFAI – OnAir'+(avgOa!=null?' · '+avgOa+' d':''),b:_hmN(h.pending_30)+' over 30 d ('+Math.round((h.pending_30||0)/Math.max(1,h.pending)*100)+'%)'+sep+'+'+_hmN(l7.onair||0)+' in 7 d'}},
   ];
   _ccMs=N;
+  if(window.innerWidth<=700){ el.innerHTML=_ccJourneyList(N,tot); el.classList.add('mjl-on'); return; }
+  el.classList.remove('mjl-on');
   const n=N.length, H=470, X=i=>10+i*(80/(n-1)), YS=[215,330,150,330,215], Y=i=>YS[i];
   let d='';
   for(let i=0;i<n-1;i++){
@@ -9068,6 +9090,24 @@ function _ccJourney(h,j){
   });
   el.innerHTML=html;
 }
+
+/* Journey on phones: a vertical timeline (same milestones, same clicks) */
+function _ccJourneyList(N,tot){
+  return '<ol class="mjl">'+N.map((m,i)=>{
+    const pct=tot?Math.round(m.v/tot*100):0, R=22, C=2*Math.PI*R, dash=C*(m.start?100:pct)/100;
+    const pills=[m.pill].concat(m.below||[]).filter(Boolean).map(t=>'<span style="--c:'+m.c+'">'+t+'</span>').join('');
+    return '<li style="--c:'+m.c+'"><button onclick="ccMilestone('+i+')" aria-label="'+m.t+': '+_hmN(m.v)+' SRs">'+
+      '<span class="ring"><svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="'+R+'" fill="#fff" stroke="rgba(0,0,0,.07)" stroke-width="6"/>'+
+      (dash>0.5?'<circle cx="28" cy="28" r="'+R+'" fill="none" stroke="'+m.c+'" stroke-width="6" stroke-linecap="round" stroke-dasharray="'+dash.toFixed(1)+' '+C.toFixed(1)+'" transform="rotate(-90 28 28)"/>':'')+
+      '</svg><b>'+(m.start?'':i)+'</b></span>'+
+      '<span class="tx"><span class="t">'+m.t+'</span><span class="d">'+m.d+'</span>'+
+      (m.co?'<span class="co"><b>'+m.co.t+':</b> '+m.co.b+'</span>':'')+(pills?'<span class="pl">'+pills+'</span>':'')+'</span>'+
+      '<span class="v"><b>'+_hmN(m.v)+'</b><small>'+(m.start?'SRs':pct+'%')+'</small></span></button></li>';
+  }).join('')+'</ol>';
+}
+(function(){ let w=window.innerWidth;
+  window.addEventListener('resize',()=>{ const n=window.innerWidth; if((w<=700)!==(n<=700)&&_activeTab==='home'&&_ccHome) _ccJourney(_ccHome,_hmDash||{}); w=n; });
+})();
 function _ccWeekly(h){
   const el=document.getElementById('cc-weekly'); if(!el) return;
   const w=h.weekly; if(!w){el.innerHTML='<div class="hm-empty">No weekly data.</div>';return;}
@@ -13865,6 +13905,83 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 @media(max-width:1100px){.xp-cards{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.xp-wrap{padding:12px}.xp-cards{grid-template-columns:1fr}.xp-big{text-align:left}.xp-q input{width:120px}.xp-ttl h1{font-size:20px}}
 
+/* ══ PHONES ══ */
+.bnav{display:none}
+@media(max-width:700px){
+  body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  .tabbar,#tabbar{display:none !important}
+  .bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:900;background:rgba(255,255,255,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-top:1px solid rgba(170,20,35,.10);box-shadow:0 -8px 24px -12px rgba(120,20,30,.25);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  .bnav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;border:none;background:none;font:inherit;font-size:10.5px;font-weight:700;color:#6b7180;padding:6px 0;border-radius:12px;cursor:pointer}
+  .bnav button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .bnav button.on{color:#e40000;background:#fff0f1}
+  /* Home header: sections live in the bottom bar */
+  .mj-nav button[title="Journey Table"],.mj-nav button[title="Dashboard"],.mj-nav button[title="Management View"],.mj-nav button[title="Financial Impact"]{display:none}
+  .mj-nav{flex-wrap:nowrap !important;width:auto !important}
+  .mj-ttl p{display:none}
+  .mj-ph{flex-wrap:wrap;gap:10px}
+  #cc-score{overflow-x:auto}
+  .cc-jscroll{overflow:visible !important}
+  #cc-journey.mjl-on{width:auto !important;height:auto !important;min-width:0 !important}
+  /* Management: menu on top, KPIs two per row */
+  #mgmt-panel div:has(> #mg-rail){flex-direction:column !important;min-height:0 !important}
+  #mg-rail{flex-direction:row !important;width:auto !important;max-height:none !important;padding:8px 12px !important;gap:8px !important;justify-content:flex-start !important;position:static !important;overflow-x:auto !important}
+  #mg-rail > div:first-child{display:none}
+  #mgmt-panel > div:first-of-type{position:static !important}
+  .d-filterbar{position:static !important}
+  .cc-grid{grid-template-columns:minmax(0,1fr) !important}
+  .cc-grid > *,.mj-panel{min-width:0;max-width:100%}
+  #cc-weekly{overflow-x:auto}
+  .mj-ph{flex-wrap:wrap !important}
+  .mj-ph::after{content:'';flex-basis:100%;order:8}
+  .mj-ph > .mj-seg{margin-left:0 !important;flex:0 0 auto;order:9}
+  .mj-ph > .mj-pic{flex:0 0 auto}
+  .mj-ph > div:not(.mj-seg):not(.mj-pic){flex:1 1 0;min-width:0}
+  #mg-rail button{width:auto !important;min-height:40px !important;flex-direction:row !important;gap:6px !important;padding:0 14px !important;font-size:12px !important}
+  .mj-nav button,.mj-arrow{width:36px !important;height:36px !important}
+  .mj-right{gap:6px !important}
+  #mg-kpi-strip{display:grid !important;grid-template-columns:1fr 1fr;overflow:visible !important}
+  #mg-kpi-strip > *{min-width:0 !important;max-width:none !important;width:auto !important}
+  /* Financial: KPIs two per row */
+  #fin-kpi-pending,#fin-kpi-onair,#fin-kpi-aging{grid-template-columns:1fr 1fr !important}
+  /* Explorer: rows become cards */
+  .xp-tscroll{max-height:none;overflow:visible}
+  .xp-tbl thead{display:none}
+  .xp-tbl,.xp-tbl tbody{display:block}
+  .xp-tbl tr{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:12px 14px;border-bottom:1px solid #f3e4e6}
+  .xp-tbl td{display:block;padding:0;border:none;white-space:normal;font-size:12px;color:#4b5263}
+  .xp-tbl td:nth-child(1){grid-column:1;font-size:14px}
+  .xp-tbl td:nth-child(4){grid-column:2;grid-row:1;justify-self:end}
+  .xp-tbl td:nth-child(5){grid-column:2;grid-row:2;justify-self:end}
+  .xp-tbl td:nth-child(2)::before{content:'Site ';color:#9aa0ad}
+  .xp-tbl td:nth-child(3)::before{content:'Circle ';color:#9aa0ad}
+  .xp-tbl td:nth-child(6)::before{content:'Project ';color:#9aa0ad}
+  .xp-tbl td:nth-child(11)::before{content:'Final RFAI ';color:#9aa0ad}
+  .xp-tbl td:nth-child(12)::before{content:'OnAir ';color:#9aa0ad}
+  .xp-tbl td:nth-child(7),.xp-tbl td:nth-child(8),.xp-tbl td:nth-child(9),.xp-tbl td:nth-child(10){display:none}
+  .xp-tbar{flex-wrap:wrap;gap:8px}
+  .xp-act{width:100%}.xp-q{flex:1}.xp-q input{width:100%}
+}
+/* vertical journey (phones) */
+.mjl{list-style:none;margin:6px 0 0;padding:0;position:relative}
+.mjl::before{content:'';position:absolute;left:27px;top:28px;bottom:28px;width:3px;border-radius:3px;background:linear-gradient(180deg,#ff2d55,#22c55e,#a855f7,#3b82f6,#a855f7);opacity:.35}
+.mjl li{position:relative;margin-bottom:10px}
+.mjl button{all:unset;box-sizing:border-box;display:flex;align-items:flex-start;gap:12px;width:100%;cursor:pointer;padding:6px 4px;border-radius:14px}
+.mjl button:focus-visible{outline:2px solid var(--c)}
+.mjl .ring{position:relative;flex:0 0 56px;height:56px;filter:drop-shadow(0 4px 10px color-mix(in srgb,var(--c) 45%,transparent))}
+.mjl .ring svg{width:56px;height:56px;display:block}
+.mjl .ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--c)}
+.mjl .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:4px}
+.mjl .t{font-size:15px;font-weight:800;color:#16181f}
+.mjl .d{font-size:12px;color:#6b7180}
+.mjl .co{font-size:12px;color:#3a3f4c;margin-top:4px}
+.mjl .co b{color:var(--c)}
+.mjl .pl{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.mjl .pl span{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;color:color-mix(in srgb,var(--c) 75%,#000);background:color-mix(in srgb,var(--c) 12%,#fff);border:1px solid color-mix(in srgb,var(--c) 30%,#fff)}
+.mjl .v{text-align:right;padding-top:6px}
+.mjl .v b{display:block;font-size:19px;font-weight:800;color:#16181f;font-variant-numeric:tabular-nums}
+.mjl .v small{font-size:11.5px;font-weight:700;color:var(--c)}
+
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}
 .cc-btn,.ccm-go,.mj-export,.mj-seg button.on,.mj-node .stp{color:#fff !important}
@@ -13880,5 +13997,6 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 @media(max-width:700px){#mj-kpis.mj-kpis{grid-template-columns:1fr 1fr}#mj-kpis .k3-sp{display:none}}
 @media(max-width:520px){.tbar .th-lbl,.tbar .logo .lnm,.tbar .logo .lsb{display:none}.tbar .trr{gap:6px}.tbar #chgBtn{padding:6px 8px}}
 </style>
+<script>if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('/sw.js').catch(function(){});</script>
 </body>
 </html>

@@ -1294,7 +1294,10 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # password of the built-i
 _ON_SERVER     = bool(os.environ.get('RENDER'))
 # Login is required whenever an admin password exists, and always on a server.
 _AUTH_ON       = bool(ADMIN_PASSWORD) or _ON_SERVER
-_PUBLIC_PATHS  = ('/login', '/api/login', '/api/logout', '/api/ping', '/favicon.ico')
+_PUBLIC_PATHS  = ('/login', '/api/login', '/api/logout', '/api/ping', '/favicon.ico',
+                  # phone app ("Add to Home screen"): manifest, icons, service worker
+                  '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png',
+                  '/icon-maskable-512.png', '/apple-touch-icon.png')
 _ADMIN_PATHS   = ('/api/upload', '/api/reload', '/api/storage-test', '/api/users')
 LOGIN_FILE     = SCRIPT_DIR / 'login.html'
 _SESSION_COOKIE = 'rfai_session'
@@ -2013,7 +2016,9 @@ def root():
 def static(path:str):
     f=(SCRIPT_DIR/path).resolve()
     if (f.is_file() and f.is_relative_to(SCRIPT_DIR.resolve())
-            and f.suffix.lower() in ('.html','.css','.js','.png','.jpg','.svg','.ico','.json')):
+            and f.suffix.lower() in ('.html','.css','.js','.png','.jpg','.svg','.ico','.json','.webmanifest')):
+        if f.suffix.lower()=='.webmanifest': return FileResponse(str(f),media_type='application/manifest+json')
+        if f.name=='sw.js': return FileResponse(str(f),media_type='text/javascript',headers={'Cache-Control':'no-cache'})
         return FileResponse(str(f))
     return JSONResponse({"error":"Not found"},status_code=404)
 

@@ -151,3 +151,16 @@ only shows a "moved" notice and serves no data.
 Notes: the free plan sleeps after 15 min idle. The first visit after that takes about a
 minute while it wakes up and reloads the data from storage. Data uploaded through the
 browser is not kept after a restart. Data loaded from R2/B2 (above) is.
+
+## On a phone
+
+The site works on phones: a bottom bar switches between Home, Journey, Dashboard,
+Reports and Cost, and the Home journey becomes a vertical timeline.
+
+**Install it as an app:** open the link in Chrome (Android) and tap the menu → **Add to
+Home screen / Install app**; on iPhone open it in Safari → Share → **Add to Home Screen**.
+It opens full screen with the airtel icon. Data is never cached on the phone.
+
+**Upload from a phone:** sign in as an admin → red upload button → pick the Excel/CSV
+from Files, Drive or WhatsApp downloads. Excel files over 8 MB are sent to the server
+as they are (the server streams them) so the phone does not run out of memory.
