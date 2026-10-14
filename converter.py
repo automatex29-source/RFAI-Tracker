@@ -1180,44 +1180,10 @@ def mk_sort_val(m):
          'jul','aug','sep','oct','nov','dec'].index(p[0][:3].lower())
     except: return 0
 
-def row_html(r, months=None):
-    from html import escape as _he
-    r={k:(_he(str(v)) if isinstance(v,str) else v) for k,v in r.items()}   # uploaded text is untrusted
-    pf=r.get('priFirst',''); pd2=r.get('priDays',0)
-    st0=r.get('srStatus',''); dl0=r.get('delay',-1)
-    try: dl0=int(dl0)
-    except Exception: dl0=-1
-    st_chip=(f'<span class="badge {SCS.get(st0,"bg2")}">{("✕ "+st0) if st0=="Rejected RFAI" else st0}</span>'
-             if st0 else '')
-    base=(f'<tr data-sr="{r.get("srNo","")}">'
-          f'<td class="mn jt-c1">{r.get("srNo","")}</td><td class="mn jt-c2">{r.get("siteId","")}</td>'
-          f'<td class="jt-c3">{st_chip}</td>'
-          f'<td class="mn tc jt-dy">{"" if dl0<0 else dl0}</td>'
-          f'<td>{r.get("circle","")}</td><td>{r.get("toco","")}</td>'
-          f'<td>{r.get("domain","")}</td><td>{r.get("oem","")}</td>'
-          f'<td>{r.get("tsp","")}</td><td>{r.get("partner","")}</td>'
-          f'<td>{r.get("bPrj","")}</td><td>{r.get("category","")}</td>'
-          f'<td class="mn">{r.get("rfaiNotice","")}</td>'
-          f'<td class="mn">{r.get("rfaiRej","")}</td>'
-          f'<td class="mn">{r.get("rfaiReoffer","")}</td>'
-          f'<td class="mn">{r.get("finalRfai","")}</td>'
-          f'<td class="mn">{r.get("priFirst","")}</td>'
-          f'<td class="mn">{r.get("priLast","")}</td>'
-          f'<td class="mn tc">{pd2 if pf and pd2 else ""}</td>'
-          f'<td class="mn">{r.get("onAir","")}</td>'
-          f'<td class="mn">{r.get("baseDate","")}</td>'
-          f'<td style="font-size:11px;color:var(--ac);font-weight:600">'
-          f'{r.get("baseLabel","")}</td>')
-    if not months:
-        st=r.get('srStatus',''); sc=SCS.get(st,'bg2')
-        stl=('✕ '+st) if st=='Rejected RFAI' else st
-        dl=r.get('delay',-1); dv='' if dl==-1 else str(dl)
-        grp=r.get('group','N/A'); gc2=GCS.get(grp,'gn'); gl=GLS.get(grp,'N/A')
-        base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
-               f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
-               f'{dv if dv else "—"}</td>'
-               f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
-        return base+'</tr>'
+def month_cells(r, months):
+    """Status / days / ageing group of one SR in each journey month (None = blank).
+    Shared by the Journey Table and the Excel export so both always agree."""
+    out=[]
     jmk_r=r.get('journeyMK',''); emk_r=r.get('exitMK','')
     js=mk_sort_val(jmk_r) if jmk_r else 0
     es=mk_sort_val(emk_r) if emk_r else 999999
@@ -1245,7 +1211,7 @@ def row_html(r, months=None):
     for mk_col in months:
         ms=mk_sort_val(mk_col)
         if js==0 or ms<js or ms>es:
-            base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
+            out.append(None)
         elif st_final=='OnAir' and oa_mk_str:
             if ms<oa_ms:
                 try:
@@ -1257,31 +1223,58 @@ def row_html(r, months=None):
                     if anchor_d and mend>=anchor_d:
                         live_d=max(0,(mend-anchor_d).days-(pri_days_val if isinstance(pri_days_val,int) else 0))
                         lg='0-30' if live_d<=30 else '30-60' if live_d<=60 else '60-90' if live_d<=90 else '>90'
-                        gc2=GCS.get(lg,'gn'); gl2=GLS.get(lg,'N/A'); dv2=str(live_d)
-                    else: gc2='gn'; gl2='N/A'; dv2='—'
-                except Exception: gc2='gn'; gl2='N/A'; dv2='—'
-                sc2=SCS.get('OnAir Pending','bg2')
-                base+=(f'<td class="tm"><span class="badge {sc2}">OnAir Pending</span></td>'
-                       f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">{dv2}</td>'
-                       f'<td class="tm tc"><span class="{gc2}">{gl2}</span></td>')
+                        out.append(('OnAir Pending',str(live_d),lg))
+                    else: out.append(('OnAir Pending','—','N/A'))
+                except Exception: out.append(('OnAir Pending','—','N/A'))
             elif ms==oa_ms:
-                sc2=SCS.get('OnAir','bg2'); dv2='' if dl_cur==-1 else str(dl_cur)
-                gc2=GCS.get(grp_cur,'gn'); gl2=GLS.get(grp_cur,'N/A')
-                base+=(f'<td class="tm"><span class="badge {sc2}">OnAir</span></td>'
-                       f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
-                       f'{dv2 if dv2 else "—"}</td>'
-                       f'<td class="tm tc"><span class="{gc2}">{gl2}</span></td>')
+                out.append(('OnAir','' if dl_cur==-1 else str(dl_cur),grp_cur))
             else:
-                base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
+                out.append(None)
         else:
-            sc=SCS.get(st_final,'bg2')
-            stl=('✕ '+st_final) if st_final=='Rejected RFAI' else st_final
-            dv='' if dl_cur==-1 else str(dl_cur)
-            gc2=GCS.get(grp_cur,'gn'); gl=GLS.get(grp_cur,'N/A')
-            base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
-                   f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
-                   f'{dv if dv else "—"}</td>'
-                   f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
+            out.append((st_final,'' if dl_cur==-1 else str(dl_cur),grp_cur))
+    return out
+
+def row_html(r, months=None):
+    from html import escape as _he
+    r={k:(_he(str(v)) if isinstance(v,str) else v) for k,v in r.items()}   # uploaded text is untrusted
+    pf=r.get('priFirst',''); pd2=r.get('priDays',0)
+    base=(f'<tr data-sr="{r.get("srNo","")}">'
+          f'<td class="mn">{r.get("srNo","")}</td><td class="mn">{r.get("siteId","")}</td>'
+          f'<td>{r.get("circle","")}</td><td>{r.get("toco","")}</td>'
+          f'<td>{r.get("domain","")}</td><td>{r.get("oem","")}</td>'
+          f'<td>{r.get("tsp","")}</td><td>{r.get("partner","")}</td>'
+          f'<td>{r.get("bPrj","")}</td><td>{r.get("category","")}</td>'
+          f'<td class="mn">{r.get("rfaiNotice","")}</td>'
+          f'<td class="mn">{r.get("rfaiRej","")}</td>'
+          f'<td class="mn">{r.get("rfaiReoffer","")}</td>'
+          f'<td class="mn">{r.get("finalRfai","")}</td>'
+          f'<td class="mn">{r.get("priFirst","")}</td>'
+          f'<td class="mn">{r.get("priLast","")}</td>'
+          f'<td class="mn tc">{pd2 if pf and pd2 else ""}</td>'
+          f'<td class="mn">{r.get("onAir","")}</td>'
+          f'<td class="mn">{r.get("baseDate","")}</td>'
+          f'<td style="font-size:11px;color:var(--ac);font-weight:600">'
+          f'{r.get("baseLabel","")}</td>')
+    if not months:
+        st=r.get('srStatus',''); sc=SCS.get(st,'bg2')
+        stl=('✕ '+st) if st=='Rejected RFAI' else st
+        dl=r.get('delay',-1); dv='' if dl==-1 else str(dl)
+        grp=r.get('group','N/A'); gc2=GCS.get(grp,'gn'); gl=GLS.get(grp,'N/A')
+        base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
+               f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
+               f'{dv if dv else "—"}</td>'
+               f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
+        return base+'</tr>'
+    for c in month_cells(r, months):
+        if c is None:
+            base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
+            continue
+        st,dv,grp=c
+        sc=SCS.get(st,'bg2'); stl=('✕ '+st) if st=='Rejected RFAI' else st
+        base+=(f'<td class="tm"><span class="badge {sc}">{stl}</span></td>'
+               f'<td class="tm tc mn" style="font-weight:600;color:var(--tx2)">'
+               f'{dv if dv else "—"}</td>'
+               f'<td class="tm tc"><span class="{GCS.get(grp,"gn")}">{GLS.get(grp,"N/A")}</span></td>')
     return base+'</tr>'
 
 # ── FastAPI ────────────────────────────────────────────────────────────────
@@ -2006,6 +1999,315 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
         d['delay']=None if dv!=dv or dv==-1 else int(dv)
         rows.append(d)
     return {"total":total,"page":page,"pages":pages,"size":size,"rows":rows,"summary":summ}
+
+# ── Excel export ──────────────────────────────────────────────────────────────
+_XL_ST={'OnAir':('#E6F7EE','#0B7A43'),'OnAir Pending':('#FFF3D6','#8A5300'),'Open PRI':('#E6EEFF','#1D4ED8'),
+        'Rejected RFAI':('#FDE8E8','#B91C1C'),'RFAI Pending':('#EEF0F4','#475569')}
+_XL_GR={'0-30':('#DCF5E8','#0B7A43'),'30-60':('#FFF4CC','#8A6100'),'60-90':('#FFE4CC','#B34700'),
+        '>90':('#FDDCDC','#B91C1C'),'N/A':('#F1F2F5','#6B7280')}
+_XL_STATUSES=['OnAir','OnAir Pending','Open PRI','Rejected RFAI','RFAI Pending']
+_XL_MAXROWS=1_000_000          # Excel holds 1,048,576 rows per sheet; bigger lists continue on the next sheet
+
+def _xl_filter(df, p):
+    """Same filters as the Journey Table (/api/filter) plus the SR Explorer ones."""
+    PEND=['OnAir Pending','Open PRI','RFAI Pending']
+    for key,colname in (('circle','circle'),('category','category'),('project','bPrj'),('toco','toco'),
+                        ('domain','domain'),('oem','oem')):
+        if p.get(key): df=df[df[colname].isin(p[key].split(','))]
+    if p.get('status'):
+        want=[]
+        for x in p['status'].split(','): want+=PEND if x=='pending' else [x]
+        df=df[df['srStatus'].isin(want)]
+    if p.get('month'):
+        ms=set(p['month'].split(','))
+        df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)] if p.get('scope')!='explore' else df[df['exitMK'].isin(ms)]
+    q=(p.get('search') or p.get('q') or '').strip().upper()
+    if q:
+        df=df[df['srNo'].astype(str).str.upper().str.contains(q,na=False,regex=False)|
+              df['siteId'].astype(str).str.upper().str.contains(q,na=False,regex=False)]
+    if p.get('aging'):
+        lo,hi={'0-30':(0,30),'30-60':(31,60),'60-90':(61,90),'>90':(91,10**6),'>30':(31,10**6)}.get(p['aging'],(0,10**6))
+        dv=pd.to_numeric(df['delay'],errors='coerce').fillna(-1)
+        df=df[(dv>=lo)&(dv<=hi)]
+    if p.get('recent'):
+        cname={'onair7':'onAir','final7':'finalRfai','pri7':'priLast','rfai7':'rfaiNotice'}.get(p['recent'])
+        if cname and cname in df.columns:
+            d=pd.to_datetime(df[cname].astype(str),format='%d-%b-%Y',errors='coerce')
+            today=pd.Timestamp(date.today())
+            df=df[(d>today-pd.Timedelta(days=7))&(d<=today)]
+    return df
+
+def build_export_xlsx(df, path, filters_text, title, include_journey=True):
+    import xlsxwriter
+    wb=xlsxwriter.Workbook(path,{'constant_memory':True,'strings_to_numbers':False,'default_date_format':'dd-mmm-yyyy'})
+    wb.set_properties({'title':title,'subject':'RFAI Tracker export','company':'Airtel'})
+    RED='#E40000'; INK='#1A1D24'; LINE='#E6D9DB'
+    F=lambda **k: wb.add_format({'font_name':'Calibri','font_size':10,'valign':'vcenter',**k})
+    f_banner=F(bold=True,font_size=20,font_color='#FFFFFF',bg_color=RED,indent=1)
+    f_bsub=F(font_color='#FFE3E3',bg_color=RED,indent=1,italic=True)
+    f_h2=F(bold=True,font_size=13,font_color=INK,bottom=2,bottom_color=RED)
+    f_note=F(font_color='#6B7280',italic=True)
+    f_hdr=F(bold=True,font_color='#FFFFFF',bg_color='#2B2F3A',border=1,border_color='#2B2F3A',align='center',text_wrap=True)
+    f_band=F(bold=True,font_color='#FFFFFF',bg_color=RED,border=1,border_color='#FFFFFF',align='center')
+    f_band2=F(bold=True,font_color=INK,bg_color='#F6E7E9',border=1,border_color=LINE,align='left',indent=1)
+    f_txt=F(border=1,border_color=LINE)
+    f_txtb=F(border=1,border_color=LINE,bold=True,font_color=INK)
+    f_num=F(border=1,border_color=LINE,num_format='#,##0',align='center')
+    f_pct=F(border=1,border_color=LINE,num_format='0%',align='center')
+    f_date=F(border=1,border_color=LINE,num_format='dd-mmm-yyyy',align='center')
+    f_tot=F(border=1,border_color=LINE,bold=True,bg_color='#FBEFF0',num_format='#,##0',align='center')
+    f_totl=F(border=1,border_color=LINE,bold=True,bg_color='#FBEFF0')
+    f_link=F(font_color='#1D4ED8',underline=1)
+    f_st={k:F(border=1,border_color=LINE,bg_color=b,font_color=c,bold=True,align='center') for k,(b,c) in _XL_ST.items()}
+    f_gr={k:F(border=1,border_color=LINE,bg_color=b,font_color=c,bold=True,align='center') for k,(b,c) in _XL_GR.items()}
+    f_kl={k:F(font_size=9,bold=True,font_color='#6B7280',bg_color='#FFFFFF',align='center',top=5,top_color=c,left=1,right=1,left_color=LINE,right_color=LINE) for k,c in
+          {'all':'#6366F1','OnAir':'#10B981','OnAir Pending':'#F59E0B','Open PRI':'#3B82F6','Rejected RFAI':'#EF4444','RFAI Pending':'#94A3B8','p30':'#F97316','avg':'#A855F7'}.items()}
+    f_kv=F(font_size=20,bold=True,font_color=INK,align='center',num_format='#,##0',bg_color='#FFFFFF',left=1,right=1,bottom=1,left_color=LINE,right_color=LINE,bottom_color=LINE)
+    f_kvd=F(font_size=20,bold=True,font_color=INK,align='center',num_format='0" d"',bg_color='#FFFFFF',left=1,right=1,bottom=1,left_color=LINE,right_color=LINE,bottom_color=LINE)
+
+    def dts(series):
+        return pd.to_datetime(series.astype(str),format='%d-%b-%Y',errors='coerce')
+    def dv_int(v):
+        try: v=int(v); return None if v<0 else v
+        except Exception: return None
+    n=len(df)
+    st=df['srStatus'].astype(str)
+    delay=pd.to_numeric(df['delay'],errors='coerce').fillna(-1).astype(int)
+    pend=st.isin(['OnAir Pending','Open PRI','RFAI Pending'])
+    cnt={k:int((st==k).sum()) for k in _XL_STATUSES}
+    p30=int((pend&(delay>30)).sum())
+    vd=delay[delay>=0]; avg=int(round(vd.mean())) if len(vd) else 0
+
+    # sheet names first (for the contents links)
+    sheets=[]
+    if include_journey:
+        jparts=max(1,-(-n//_XL_MAXROWS)); sheets+=[('Journey Table' if jparts==1 else f'Journey Table {i+1}','Every SR with dates and its status month by month') for i in range(jparts)]
+    DETAIL=[('Pending SRs',pend,'Not yet OnAir, oldest first (days since Final RFAI, PRI excl.)'),
+            ('Open PRI',st=='Open PRI','Post-RFAI issue still open, oldest first'),
+            ('Rejected RFAI',st=='Rejected RFAI','RFAI rejected, waiting re-offer'),
+            ('OnAir SRs',st=='OnAir','On air, with days from Final RFAI to OnAir')]
+    sheets+=[(nm,ds) for nm,_,ds in DETAIL]
+
+    # ═══ Summary ═══
+    ws=wb.add_worksheet('Summary'); ws.hide_gridlines(2); ws.set_zoom(90)
+    ws.set_landscape(); ws.fit_to_pages(1,0); ws.set_paper(9)
+    ws.set_column('A:A',2); ws.set_column('B:Q',13)
+    ws.set_row(0,40); ws.merge_range('B1:Q1','  airtel  ·  RFAI Tracker  —  '+title,f_banner)
+    ws.merge_range('B2:Q2','  Generated '+datetime.now().strftime('%d-%b-%Y %H:%M')+'   ·   '+f'{n:,}'+' SRs   ·   Filters: '+(filters_text or 'none (all SRs)'),f_bsub)
+    ws.write('B4','Key numbers',f_h2)
+    K=[('all','Total SRs',n,None),('OnAir','OnAir',cnt['OnAir'],None),('OnAir Pending','OnAir Pending',cnt['OnAir Pending'],None),
+       ('Open PRI','Open PRI',cnt['Open PRI'],None),('Rejected RFAI','Rejected RFAI',cnt['Rejected RFAI'],None),
+       ('RFAI Pending','RFAI Pending',cnt['RFAI Pending'],None),('p30','Pending > 30 days',p30,None),('avg','Average days',avg,'d')]
+    for i,(k,l,v,u) in enumerate(K): ws.merge_range(5,1+i*2,5,2+i*2,l.upper(),f_kl[k])   # rows strictly top-down (streamed file)
+    for i,(k,l,v,u) in enumerate(K): ws.merge_range(6,1+i*2,6,2+i*2,v,f_kvd if u else f_kv)
+    ws.set_row(6,34)
+    pct=lambda v:(v/n if n else 0)
+    ws.write(7,1,f'OnAir {pct(cnt["OnAir"]):.0%} of SRs  ·  {pct(int(pend.sum())):.0%} still pending  ·  click a sheet name below to open it',f_note)
+    # contents
+    ws.write(9,1,'Sheets in this file',f_h2)
+    r0=10
+    for i,(nm,ds) in enumerate(sheets):
+        ws.write_url(r0+i,1,f"internal:'{nm}'!A1",f_link,nm); ws.write(r0+i,3,ds,f_note)
+    r=r0+len(sheets)+1
+    # status mix
+    ws.write(r,1,'Status mix',f_h2); r+=1
+    hdr_r=r; ws.write_row(r,1,['Status','SRs','Share'],f_hdr); r+=1
+    st_first=r
+    for k in _XL_STATUSES:
+        ws.write(r,1,k,f_st[k]); ws.write(r,2,cnt[k],f_num); ws.write(r,3,pct(cnt[k]),f_pct); r+=1
+    ws.write(r,1,'Total',f_totl); ws.write(r,2,n,f_tot); ws.write(r,3,1 if n else 0,F(border=1,border_color=LINE,bold=True,bg_color='#FBEFF0',num_format='0%',align='center')); r+=1
+    ch=wb.add_chart({'type':'doughnut'})
+    ch.add_series({'name':'Status mix','categories':['Summary',st_first,1,st_first+4,1],'values':['Summary',st_first,2,st_first+4,2],
+                   'points':[{'fill':{'color':{'OnAir':'#10B981','OnAir Pending':'#F59E0B','Open PRI':'#3B82F6','Rejected RFAI':'#EF4444','RFAI Pending':'#94A3B8'}[k]},'border':{'color':'#FFFFFF'}} for k in _XL_STATUSES],
+                   'data_labels':{'percentage':True,'font':{'bold':True,'color':'#FFFFFF'}}})
+    ch.set_hole_size(55); ch.set_title({'name':'Status mix','name_font':{'size':12}}); ch.set_legend({'position':'right'})
+    ch.set_size({'width':420,'height':250}); ws.insert_chart(hdr_r,5,ch,{'x_offset':10})
+    r=max(r,hdr_r+13)+1
+    # by circle
+    ws.write(r,1,'By circle',f_h2); r+=1
+    g=pd.DataFrame({'c':df['circle'].astype(str),'s':st,'p30':(pend&(delay>30))})
+    ct=pd.crosstab(g['c'],g['s']).reindex(columns=_XL_STATUSES,fill_value=0)
+    ct['Total']=ct.sum(axis=1); ct=ct.sort_values('Total',ascending=False)
+    p30c=g.groupby('c')['p30'].sum()
+    cols=['Circle']+_XL_STATUSES+['Total','OnAir %','Pending >30 d']
+    c_hdr=r; ws.write_row(r,1,cols,f_hdr); ws.set_row(r,30); r+=1; c_first=r
+    for circ,row in ct.iterrows():
+        if circ in ('','nan'): continue
+        ws.write(r,1,circ,f_txtb)
+        for j,k in enumerate(_XL_STATUSES): ws.write(r,2+j,int(row[k]),f_num)
+        ws.write(r,7,int(row['Total']),f_num); ws.write(r,8,(row['OnAir']/row['Total']) if row['Total'] else 0,f_pct)
+        ws.write(r,9,int(p30c.get(circ,0)),f_num); r+=1
+    c_last=r-1
+    if c_last>=c_first:
+        ws.write(r,1,'Total',f_totl)
+        for j,k in enumerate(_XL_STATUSES): ws.write(r,2+j,cnt[k],f_tot)
+        ws.write(r,7,n,f_tot)
+        ws.write(r,8,(cnt['OnAir']/n) if n else 0,F(border=1,border_color=LINE,bold=True,bg_color='#FBEFF0',num_format='0%',align='center'))
+        ws.write(r,9,p30,f_tot); r+=1
+        ws.conditional_format(c_first,8,c_last,8,{'type':'data_bar','bar_color':'#34D399','bar_solid':True,'min_type':'num','min_value':0,'max_type':'num','max_value':1})
+        ws.conditional_format(c_first,9,c_last,9,{'type':'data_bar','bar_color':'#FB923C','bar_solid':True})
+        ch=wb.add_chart({'type':'bar','subtype':'stacked'})
+        for j,k in enumerate(_XL_STATUSES):
+            ch.add_series({'name':['Summary',c_hdr,2+j],'categories':['Summary',c_first,1,c_last,1],'values':['Summary',c_first,2+j,c_last,2+j],
+                           'fill':{'color':_XL_ST[k][1] if k!='OnAir' else '#10B981'},'gap':60})
+        ch.set_title({'name':'SRs by circle and status','name_font':{'size':12}}); ch.set_legend({'position':'bottom'})
+        chh=max(260,22*(c_last-c_first+1)+120)
+        ch.set_y_axis({'reverse':True}); ch.set_size({'width':760,'height':chh})
+        ws.insert_chart(c_hdr,11,ch,{'x_offset':10})
+        r=max(r,c_hdr+int(chh/20)+2)
+    r+=1
+    # by month (exit month)
+    ws.write(r,1,'By month (exit month: OnAir month for live sites, RFAI month otherwise)',f_h2); r+=1
+    g=pd.DataFrame({'m':df['exitMK'].astype(str),'s':st})
+    mt=pd.crosstab(g['m'],g['s']).reindex(columns=_XL_STATUSES,fill_value=0)
+    mt=mt.loc[sorted([m for m in mt.index if m and m!='nan'],key=mk_sort_val)]
+    m_hdr=r; ws.write_row(r,1,['Month']+_XL_STATUSES+['Total','OnAir %'],f_hdr); ws.set_row(r,30); r+=1; m_first=r
+    for m,row in mt.iterrows():
+        t=int(row.sum()); ws.write(r,1,m,f_txtb)
+        for j,k in enumerate(_XL_STATUSES): ws.write(r,2+j,int(row[k]),f_num)
+        ws.write(r,7,t,f_num); ws.write(r,8,(row['OnAir']/t) if t else 0,f_pct); r+=1
+    m_last=r-1
+    if m_last>=m_first:
+        ws.conditional_format(m_first,7,m_last,7,{'type':'data_bar','bar_color':'#F87171','bar_solid':True})
+        ch=wb.add_chart({'type':'column','subtype':'stacked'})
+        for j,k in enumerate(_XL_STATUSES):
+            ch.add_series({'name':['Summary',m_hdr,2+j],'categories':['Summary',m_first,1,m_last,1],'values':['Summary',m_first,2+j,m_last,2+j],
+                           'fill':{'color':_XL_ST[k][1] if k!='OnAir' else '#10B981'},'gap':50})
+        ch.set_title({'name':'SRs by month and status','name_font':{'size':12}}); ch.set_legend({'position':'bottom'})
+        ch.set_size({'width':760,'height':300}); ws.insert_chart(m_hdr,11,ch,{'x_offset':10})
+    r=max(r,m_hdr+16)+1
+    # pending ageing
+    ws.write(r,1,'Pending ageing (days since Final RFAI, PRI days excluded)',f_h2); r+=1
+    ws.write_row(r,1,['Days','Pending SRs','Share'],f_hdr); r+=1
+    pd_=delay[pend]; tp=int(pend.sum())
+    for lab,lo,hi in (('0-30',0,30),('30-60',31,60),('60-90',61,90),('>90',91,10**6)):
+        v=int(((pd_>=lo)&(pd_<=hi)).sum())
+        ws.write(r,1,lab+' days',f_gr[lab]); ws.write(r,2,v,f_num); ws.write(r,3,(v/tp) if tp else 0,f_pct); r+=1
+    ws.write(r,1,'Total pending',f_totl); ws.write(r,2,tp,f_tot); r+=1
+    ws.activate()
+
+    def table_sheets(base_name, cols, row_iter, total, freeze_col=2, bands=None, widths=None):
+        """Write a list over as many sheets as needed (1,000,000 rows each).
+        cols: [(header, kind)] kind in txt|txtb|num|date|status|group|days."""
+        parts=max(1,-(-total//_XL_MAXROWS)); it=iter(row_iter)
+        for pi in range(parts):
+            name=base_name if parts==1 else f'{base_name} {pi+1}'
+            w=wb.add_worksheet(name); w.set_zoom(90); w.hide_gridlines(2)
+            w.set_landscape(); w.set_paper(9); w.repeat_rows(0,1 if bands else 0)
+            if not bands: w.fit_to_pages(1,0)
+            else: w.repeat_columns(0,1)
+            hr=0
+            if bands:
+                for (c0,c1,label,fmt) in bands:
+                    if c1>c0: w.merge_range(0,c0,0,c1,label,fmt)
+                    else: w.write(0,c0,label,fmt)
+                hr=1
+            w.write_row(hr,0,[c[0] for c in cols],f_hdr); w.set_row(hr,30)
+            for j,(h,k) in enumerate(cols):
+                wd=(widths or {}).get(j) or {'date':12.5,'num':9,'days':8,'status':15,'group':9,'txtb':18}.get(k,14)
+                w.set_column(j,j,wd)
+            w.freeze_panes(hr+1,freeze_col)
+            rr=hr+1; cnt_rows=0
+            for vals in it:
+                for j,((h,k),v) in enumerate(zip(cols,vals)):
+                    if v is None or v=='' : w.write_blank(rr,j,None,f_txt); continue
+                    if k=='date':
+                        if isinstance(v,pd.Timestamp) and not pd.isna(v): w.write_datetime(rr,j,v.to_pydatetime(),f_date)
+                        else: w.write_string(rr,j,str(v),f_txt)
+                    elif k in ('num','days'): w.write_number(rr,j,v,f_num)
+                    elif k=='status': w.write_string(rr,j,v,f_st.get(v,f_txt))
+                    elif k=='group': w.write_string(rr,j,GLS.get(v,v),f_gr.get(v,f_txt))
+                    elif k=='txtb': w.write_string(rr,j,str(v),f_txtb)
+                    else: w.write_string(rr,j,str(v),f_txt)
+                rr+=1; cnt_rows+=1
+                if cnt_rows>=_XL_MAXROWS: break
+            last=max(rr-1,hr+1)
+            w.autofilter(hr,0,last,len(cols)-1)
+            for j,(h,k) in enumerate(cols):
+                if k=='days' and cnt_rows: w.conditional_format(hr+1,j,last,j,{'type':'data_bar','bar_color':'#FCA5A5','bar_solid':True,'min_type':'num','min_value':0})
+            w.write_url(last+2,0,"internal:'Summary'!A1",f_link,'◂ Back to Summary')
+
+    DATE_COLS=['rfaiNotice','rfaiRej','rfaiReoffer','finalRfai','priFirst','priLast','onAir','baseDate']
+    D={c:(dts(df[c]) if c in df.columns else pd.Series(pd.NaT,index=df.index)) for c in DATE_COLS}
+    def g(c): return df[c].astype(str).where(lambda x:~x.isin(['nan','None']),'') if c in df.columns else pd.Series('',index=df.index)
+
+    if include_journey:
+        all_mks=(set(df['exitMK'].dropna().astype(str))|set(df['journeyMK'].dropna().astype(str)))
+        months=sorted([m for m in all_mks if m and m!='nan'],key=mk_sort_val)
+        base=[('SR #','txtb'),('2G Site ID','txt'),('Circle','txt'),('ToCo Name','txt'),('Project Type','txt'),('OEM','txt'),('TSP','txt'),
+              ('Partner','txt'),('TOCO Project','txt'),('Broad Project','txt'),('Initial RFAI','date'),('RFAI Rejection','date'),
+              ('RFAI Re-offer','date'),('Final RFAI','date'),('1st PRI Start','date'),('Last PRI Close','date'),('PRI Days','num'),
+              ('OnAir Date','date'),('Base Date','date'),('Base','txt')]
+        cols=list(base)
+        for m in months: cols+=[('Status','status'),('Days','days'),('Group','group')]
+        nb=len(base)
+        bands=[(0,nb-1,'BASE INFORMATION',f_band2)]+[(nb+3*i,nb+3*i+2,m,f_band) for i,m in enumerate(months)]
+        GV={c:g(c).tolist() for c in ['srNo','siteId','circle','toco','domain','oem','tsp','partner','bPrj','category','baseLabel']}
+        DV={c:D[c].tolist() for c in DATE_COLS}
+        def jrows():
+            def recs():            # in chunks: a dict per row for the whole table would not fit in 512 MB
+                for a in range(0,n,20000):
+                    yield from df.iloc[a:a+20000].to_dict('records')
+            for i,rec in enumerate(recs()):
+                pf=rec.get('priFirst',''); pdays=dv_int(rec.get('priDays',0))
+                row=[GV['srNo'][i],GV['siteId'][i],GV['circle'][i],GV['toco'][i],GV['domain'][i],GV['oem'][i],GV['tsp'][i],GV['partner'][i],
+                     GV['bPrj'][i],GV['category'][i],DV['rfaiNotice'][i],DV['rfaiRej'][i],DV['rfaiReoffer'][i],DV['finalRfai'][i],
+                     DV['priFirst'][i],DV['priLast'][i],(pdays if pf and pdays else None),DV['onAir'][i],DV['baseDate'][i],GV['baseLabel'][i]]
+                row=[None if (isinstance(v,float) and v!=v) or (v is pd.NaT) else v for v in row]
+                for c in month_cells(rec,months):
+                    if c is None: row+=[None,None,None]
+                    else:
+                        stt,dvs,grp=c
+                        try: dn=int(dvs)
+                        except Exception: dn=None
+                        row+=[stt,dn,grp]
+                yield row
+        table_sheets('Journey Table',cols,jrows(),n,freeze_col=2,bands=bands)
+
+    # detail lists
+    det_cols=[('SR #','txtb'),('2G Site ID','txt'),('Circle','txt'),('Status','status'),('Days','days'),('Ageing','group'),
+              ('Project Type','txt'),('TOCO Project','txt'),('Broad Project','txt'),('ToCo Name','txt'),('OEM','txt'),('Initial RFAI','date'),
+              ('Final RFAI','date'),('1st PRI Start','date'),('Last PRI Close','date'),('PRI Days','num'),('OnAir Date','date')]
+    for nm,mask,_ in DETAIL:
+        idx=np.where(mask.to_numpy())[0]
+        order=idx[np.argsort(-delay.to_numpy()[idx],kind='stable')]
+        S={c:g(c).to_numpy() for c in ['srNo','siteId','circle','srStatus','group','domain','bPrj','category','toco','oem']}
+        Dd={c:D[c].to_numpy() for c in ['rfaiNotice','finalRfai','priFirst','priLast','onAir']}
+        pdv=pd.to_numeric(df['priDays'],errors='coerce').fillna(0).astype(int).to_numpy() if 'priDays' in df.columns else np.zeros(n,int)
+        dl=delay.to_numpy()
+        def drows(order=order):
+            for i in order:
+                def dd(c):
+                    v=Dd[c][i]; return None if pd.isna(v) else pd.Timestamp(v)
+                yield [S['srNo'][i],S['siteId'][i],S['circle'][i],S['srStatus'][i],(int(dl[i]) if dl[i]>=0 else None),
+                       (S['group'][i] or 'N/A'),S['domain'][i],S['bPrj'][i],S['category'][i],S['toco'][i],S['oem'][i],dd('rfaiNotice'),dd('finalRfai'),
+                       dd('priFirst'),dd('priLast'),(int(pdv[i]) if pdv[i]>0 else None),dd('onAir')]
+        table_sheets(nm,det_cols,drows(),len(order),freeze_col=1)
+    wb.close()
+
+@app.get("/api/export-xlsx")
+def export_xlsx(request:Request, background_tasks:BackgroundTasks, journey:int=Query(default=1), title:str=Query(default='')):
+    """Formatted Excel: Summary (key numbers, charts, contents), the Journey Table
+    (split over several sheets when needed) and Pending / Open PRI / Rejected / OnAir lists."""
+    import tempfile
+    df=_df_full_cache
+    if df is None or not len(df): return JSONResponse({"error":"No data loaded"},status_code=404)
+    p={k:v for k,v in request.query_params.items() if v}
+    df=_xl_filter(df,p).reset_index(drop=True)
+    if not len(df): return JSONResponse({"error":"No SRs match these filters"},status_code=404)
+    LBL={'circle':'Circle','category':'Category','project':'Project','toco':'ToCo','domain':'Domain','oem':'OEM','status':'Status',
+         'month':'Month','search':'Search','q':'Search','aging':'Days','recent':'Recent'}
+    ftxt='  ·  '.join(f'{LBL[k]}: {v}' for k,v in p.items() if k in LBL)
+    fd,path=tempfile.mkstemp(suffix='.xlsx',dir=str(_cache_dir) if _cache_dir.exists() else None); os.close(fd)
+    try:
+        build_export_xlsx(df,path,ftxt,title or 'Journey export',include_journey=bool(journey))
+    except Exception as e:
+        try: os.remove(path)
+        except Exception: pass
+        log.error(f"  Export failed: {e}"); return JSONResponse({"error":f"Export failed: {e}"},status_code=500)
+    background_tasks.add_task(lambda: os.path.exists(path) and os.remove(path))
+    name='RFAI_'+re.sub(r'[^A-Za-z0-9]+','_',title or 'Journey')[:40].strip('_')+'_'+datetime.now().strftime('%d%b%Y_%H%M')+'.xlsx'
+    return FileResponse(path,filename=name,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.get("/")
 def root():

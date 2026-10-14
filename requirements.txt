@@ -9,3 +9,4 @@ boto3
 duckdb
 python-calamine
 lxml
+xlsxwriter

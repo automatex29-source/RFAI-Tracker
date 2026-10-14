@@ -895,23 +895,7 @@ body.home-mode #home-panel.cc{min-height:100vh}
 .mj-kpis{margin-top:16px}
 
 /* ════════════ JOURNEY TABLE ════════════ */
-.twrap{max-height:calc(100vh - 250px)}
-tbody td{padding:5px 10px}
 tbody tr{cursor:pointer}
-tbody td:not(.tm):not(.jt-c3):empty::after{content:'—';color:#cbd5e1}
-thead tr:nth-child(2) th{background:#f8f9fc}
-/* frozen columns: SR #, Site ID, Status */
-#thead tr:nth-child(2) th:nth-child(1),#tbody td.jt-c1{position:sticky;left:0;min-width:150px;max-width:150px;overflow:hidden;text-overflow:ellipsis;z-index:3}
-#thead tr:nth-child(2) th:nth-child(2),#tbody td.jt-c2{position:sticky;left:150px;min-width:96px;max-width:96px;overflow:hidden;text-overflow:ellipsis;z-index:3}
-#thead tr:nth-child(2) th:nth-child(3),#tbody td.jt-c3{position:sticky;left:246px;min-width:150px;max-width:150px;z-index:3;box-shadow:inset -1px 0 0 var(--bdr2)}
-#thead tr:nth-child(2) th:nth-child(-n+3){z-index:12;background:#f8f9fc}
-#thead tr:first-child th.thb{position:sticky;left:0;z-index:12}
-#tbody td.jt-c1,#tbody td.jt-c2,#tbody td.jt-c3{background:var(--surf)}
-#tbody tr:nth-child(even) td.jt-c1,#tbody tr:nth-child(even) td.jt-c2,#tbody tr:nth-child(even) td.jt-c3{background:#fbfcfd}
-#tbody tr:hover td.jt-c1,#tbody tr:hover td.jt-c2,#tbody tr:hover td.jt-c3{background:var(--ac-lt)}
-#tbody td.jt-c1{font-weight:700;color:var(--tx)}
-#tbody td.jt-dy{font-weight:700;color:var(--tx2)}
-#tbody td.jt-c3 .badge{max-width:138px;overflow:hidden;text-overflow:ellipsis}
 #tbody tr.jt-sel td{background:#fff1f1!important}
 /* SR detail panel */
 #sr-drawer-bg{position:fixed;inset:0;background:rgba(13,17,23,.28);z-index:900;display:none}
@@ -3506,7 +3490,7 @@ function calcDelayAsOf(r, asOf){
   return Math.max(0,raw-priDed);
 }
 
-const BC=['SR #','2G Site ID','Status','Days','Circle','ToCo Name','Project Type','OEM','TSP',
+const BC=['SR #','2G Site ID','Circle','ToCo Name','Project Type','OEM','TSP',
   'Partner','TOCO Project','Broad Project',
   'Initial RFAI','RFAI Rejection','RFAI Re-offer','Final RFAI',
   '1st PRI Start','Last PRI Close','PRI Days','OnAir Date',
@@ -3850,8 +3834,34 @@ const EXPORT_XLSX_LIMIT = 200000; // beyond this → CSV (no OOM risk)
 const EXPORT_STYLE_LIMIT = 50000; // beyond this → no per-cell styling (huge RAM saver)
 
 function exportCSV(){
-  showToast('s','Preparing full journey table export…');
-  setTimeout(()=>_doJourneyExport(), 80);
+  // formatted Excel built on the server with the Journey Table's current filters
+  const ci=getMsVals('fCircle'),cat=getMsVals('fCat'),pj=getMsVals('fProj');
+  const tc=getMsVals('fToco'),dm=getMsVals('fDomain'),oe=getMsVals('fOEM'),st=getMsVals('fStat');
+  const sr=(document.getElementById('fSrch')||{}).value||'';
+  const yr=(document.getElementById('fYear')||{}).value||'';
+  let mo=getMsVals('fMonth');
+  if(yr&&allM.length){
+    const yrM=allM.filter(m=>{const p=m.split("'");return p[1]&&('20'+p[1])===yr;});
+    mo=mo&&mo.length?mo.filter(m=>yrM.includes(m)):(yrM.length?yrM:null);
+  }
+  const p=new URLSearchParams();
+  [['circle',ci],['category',cat],['project',pj],['toco',tc],['domain',dm],['oem',oe],['status',st],['month',mo]]
+    .forEach(([k,v])=>{ if(v&&v.length) p.set(k,v.join(',')); });
+  if(sr.trim()) p.set('search',sr.trim());
+  p.set('title','Journey Table');
+  downloadXlsx(p);
+}
+async function downloadXlsx(params){
+  showToast('s','Preparing your Excel file… large data can take up to a minute');
+  try{
+    const r=await fetch(_B+'/api/export-xlsx?'+params.toString());
+    if(!r.ok){ let m='Export failed'; try{ m=(await r.json()).error||m; }catch(e){} showToast('e',m); return; }
+    const blob=await r.blob();
+    const cd=r.headers.get('content-disposition')||'', m=cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=m?decodeURIComponent(m[1]):'RFAI_export.xlsx';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    showToast('s','Excel downloaded');
+  }catch(e){ showToast('e','Export failed: '+e.message); }
 }
 
 async function _doJourneyExport(){
@@ -4671,14 +4681,10 @@ function _xpTable(j){
   document.getElementById('xp-pager').innerHTML=h+btn(cur+1,'Next ›',cur>=P);
 }
 function exploreSort(k){ if(_xp.sort===k) _xp.dir=_xp.dir==='asc'?'desc':'asc'; else { _xp.sort=k; _xp.dir=k==='delay'?'desc':'asc'; } _xp.page=1; exploreLoad(); }
-async function exploreExport(){
-  let j; try{ j=await (await fetch(_B+'/api/explore?'+_xpQuery({page:1,size:500}))).json(); }catch(e){ return; }
-  const all=[...(j.rows||[])];
-  for(let pg=2; pg<=Math.min(j.pages||1,200); pg++){ try{ const k=await (await fetch(_B+'/api/explore?'+_xpQuery({page:pg,size:500}))).json(); all.push(...(k.rows||[])); }catch(e){ break; } }
-  const head=_XP_COLS.map(c=>c[1]), esc=v=>{v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
-  const csv=[head.join(',')].concat(all.map(r=>_XP_COLS.map(([k])=>esc(r[k])).join(','))).join('\n');
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));
-  a.download='RFAI_'+_xpTitle().replace(/[^\w]+/g,'_').slice(0,60)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+function exploreExport(){
+  const p=new URLSearchParams(Object.assign({},_xp.f,{q:_xp.q,scope:'explore',title:_xpTitle()}));
+  [...p.keys()].forEach(k=>{ if(p.get(k)==='') p.delete(k); });
+  downloadXlsx(p);
 }
 
 /* ── ACCOUNT: sign-in session, user menu, users, password ── */
