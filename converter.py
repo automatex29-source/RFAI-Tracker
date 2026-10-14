@@ -1236,6 +1236,7 @@ def month_cells(r, months):
 
 def row_html(r, months=None):
     from html import escape as _he
+    raw=r                                   # month logic needs the original values (e.g. "Feb'26")
     r={k:(_he(str(v)) if isinstance(v,str) else v) for k,v in r.items()}   # uploaded text is untrusted
     pf=r.get('priFirst',''); pd2=r.get('priDays',0)
     base=(f'<tr data-sr="{r.get("srNo","")}">'
@@ -1265,7 +1266,7 @@ def row_html(r, months=None):
                f'{dv if dv else "—"}</td>'
                f'<td class="tm tc"><span class="{gc2}">{gl}</span></td>')
         return base+'</tr>'
-    for c in month_cells(r, months):
+    for c in month_cells(raw, months):
         if c is None:
             base+='<td class="tm"></td><td class="tm"></td><td class="tm"></td>'
             continue

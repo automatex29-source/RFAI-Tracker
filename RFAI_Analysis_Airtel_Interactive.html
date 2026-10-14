@@ -14289,6 +14289,54 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 .vel-act{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
 .vel-x{font:inherit;font-size:14px;font-weight:700;border:1px solid #ecdfe1;background:#fff;border-radius:10px;padding:10px 16px;cursor:pointer}
 
+/* ══ JOURNEY TABLE — look only (same columns, same data) ══ */
+#tablePanel .fbar{margin:12px 16px 0;padding:10px 12px;border:1px solid var(--t-line);border-radius:16px;background:linear-gradient(180deg,#fff,#fffafa);
+  box-shadow:inset 0 1px 0 #fff,0 8px 20px -14px rgba(140,20,35,.25)}
+#tablePanel .fbar .ms-btn,#tablePanel .fbar select,#tablePanel .fbar input[type=text]{border-radius:999px !important;height:32px;border-color:#ecdfe1;background:#fff}
+#tablePanel .fbar .ms-btn:hover{border-color:#e9b9be}
+#tablePanel .twrap{margin:12px 16px 0;border:1px solid var(--t-line);border-radius:16px 16px 0 0;background:#fff;
+  box-shadow:0 14px 30px -20px rgba(140,20,35,.30);max-height:calc(100vh - 230px)}
+#tablePanel .tfoot{margin:0 16px 16px;border:1px solid var(--t-line);border-top:none;border-radius:0 0 16px 16px;background:#fffafa}
+#tablePanel table:has(#tbody){font-size:12.5px}
+/* header row 1: Base information + month bands */
+#thead tr:first-child th{height:40px;border-bottom:none;font-size:10.5px;letter-spacing:.08em}
+#thead tr:first-child th.thb{background:linear-gradient(180deg,#2b2f3a,#1f232c) !important;color:#fff !important;text-align:left;padding-left:14px}
+#thead tr:first-child th:not(.thb){background:linear-gradient(180deg,#ff2a2a,#d40000) !important;color:#fff !important;border-left:2px solid #fff !important;
+  text-shadow:0 1px 0 rgba(0,0,0,.15);line-height:1.25}
+#thead tr:first-child th:not(.thb):nth-child(even){background:linear-gradient(180deg,#e01a1a,#b8000c) !important}
+#thead tr:first-child th:not(.thb) *{color:#fff !important}
+/* header row 2: column names */
+#thead tr:nth-child(2) th{background:#fbf3f4 !important;color:#4b3f42 !important;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  padding:9px 12px;border-bottom:2px solid #f0d6d9 !important;box-shadow:0 6px 10px -8px rgba(140,20,35,.35)}
+#thead tr:nth-child(2) th.tm{color:#8a5a60 !important}
+#thead tr:nth-child(2) th:nth-child(3n+21){border-left:2px solid #f0d6d9 !important}
+/* body */
+#tbody tr{border-bottom:1px solid #f6eced}
+#tbody tr:nth-child(even){background:#fffbfb}
+#tbody tr:hover{background:#fff0f1 !important;box-shadow:inset 3px 0 0 #e40000}
+#tbody td{padding:8px 12px;color:#2c313c}
+#tbody td:first-child{font-weight:800;color:#16181f;font-size:11.5px}
+#tbody td:nth-child(2){color:#5b6170}
+#tbody td.tm{border-left:1px solid #f6eced}
+#tbody td:nth-child(3n+21){border-left:2px solid #f3e1e3}
+/* every other month lightly tinted so the 3 columns of a month read as one block */
+#tbody td:nth-child(6n+24),#tbody td:nth-child(6n+25),#tbody td:nth-child(6n+26){background:rgba(228,0,0,.025)}
+#tbody td.tm:nth-child(3n+22){font-weight:800;color:#3a1218 !important}
+/* status pills and ageing chips */
+#tbody .badge{padding:3px 9px;font-size:10.5px;border:1px solid transparent;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+#tbody .bo{background:#e6f7ee;color:#0b7a43;border-color:#bfe9d1}#tbody .bo::before{background:#10b981}
+#tbody .bp{background:#fff4dc;color:#8a5300;border-color:#fbdfa0}#tbody .bp::before{background:#f59e0b}
+#tbody .bb{background:#e8efff;color:#1d4ed8;border-color:#c7d7fe}
+#tbody .bg2{background:#f1f2f5;color:#475569;border-color:#e2e5ea}
+#tbody .gb{border-radius:999px;padding:2px 9px;font-size:10px;border:1px solid transparent}
+#tbody .g0{background:#dcf5e8;color:#0b7a43;border-color:#b8e8cf}
+#tbody .g2{background:#fff4cc;color:#8a6100;border-color:#f6e08f}
+#tbody .g4{background:#ffe4cc;color:#b34700;border-color:#fdc89b}
+#tbody .g5{background:#fde2e2;color:#b91c1c;border-color:#f8b4b4}
+/* pager */
+#tablePanel .tfoot button,#tablePanel .tfoot .pg{border-radius:10px}
+@media(max-width:700px){#tablePanel .fbar,#tablePanel .twrap{margin:10px 8px 0}#tablePanel .tfoot{margin:0 8px 12px}}
+
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}
 .cc-btn,.ccm-go,.mj-export,.mj-seg button.on,.mj-node .stp{color:#fff !important}
