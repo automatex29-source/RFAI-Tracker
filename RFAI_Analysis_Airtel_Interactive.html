@@ -4657,21 +4657,286 @@ async function userDel(n){
   _umMsg('Removed "'+n+'".',true); usersLoad();
 }
 
-/* ── THEME ── */
+/* ── THEME ──
+   Light: the pages' own (light) design. Dark: generated from it — every colour in
+   the stylesheets and in inline styles is mapped to a navy dark palette
+   (light backgrounds -> dark surfaces, dark text -> light text, accents kept).
+   Home is designed dark; in the light theme it is shown inverted (html.inv). */
 let _theme='dark';
 try{ const t=localStorage.getItem('rfai-theme'); if(t==='light'||t==='dark') _theme=t; }catch(e){}
+const _DK={};
+_DK.parse=function(c){
+  c=c.trim().toLowerCase(); let m;
+  if(c==='white') return [255,255,255,1]; if(c==='black') return [0,0,0,1];
+  if(m=c.match(/^#([0-9a-f]{3,8})$/)){
+    let h=m[1]; if(h.length<=4) h=h.split('').map(x=>x+x).join('');
+    return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16),h.length===8?parseInt(h.slice(6,8),16)/255:1];
+  }
+  if(m=c.match(/^rgba?\(([^)]+)\)$/)){
+    const v=m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat);
+    return [v[0],v[1],v[2],v.length>3?v[3]:1];
+  }
+  return null;
+};
+_DK.hsl=function(r,g,b){
+  r/=255;g/=255;b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2; let h=0,s=0;
+  if(mx!==mn){ const d=mx-mn; s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    h=mx===r?(g-b)/d+(g<b?6:0):mx===g?(b-r)/d+2:(r-g)/d+4; h*=60; }
+  return [h,s,l];
+};
+_DK.rgb=function(h,s,l){
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l), f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return [Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)];
+};
+// kind: 'bg' | 'fg' | 'bd'
+_DK.map=function(c,kind){
+  const v=_DK.parse(c); if(!v||v[3]===0) return c;
+  let [h,s,l]=_DK.hsl(v[0],v[1],v[2]); const neutral=s<.22||l>.96;
+  if(kind==='bg'){
+    if(l>=.8){
+      if(neutral){ h=226; s=.32; l=.105+(1-l)*.45; }
+      else { s=Math.min(s,.6)*.55; l=.13+(1-l)*.35; }
+    } else if(l>=.6&&neutral){ h=226; s=.25; l=.28; }
+    else return c;
+  } else if(kind==='fg'){
+    if(l>.8) return c;
+    if(neutral||s<.5){ if(l>.55) return c; s=Math.min(s,.25); l=.93-l*.55; }
+    else if(l<.5) l=Math.max(.68,l+.3);
+    else return c;
+  } else {
+    if(l<.7) return c;
+    if(neutral){ h=226; s=.25; l=.2+(1-l)*.35; }
+    else { s=Math.min(s,.6)*.6; l=.24; }
+  }
+  const o=_DK.rgb(h,s,l);
+  return v[3]<1?'rgba('+o.join(',')+','+(+v[3].toFixed(3))+')':'#'+o.map(x=>x.toString(16).padStart(2,'0')).join('');
+};
+_DK.RE=/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\bwhite\b/g;
+_DK.kind=function(prop){
+  if(prop.startsWith('background')) return 'bg';
+  if(prop==='color'||prop==='fill'||prop==='stroke'||prop==='caret-color'||prop==='-webkit-text-fill-color') return 'fg';
+  if(prop.startsWith('border')||prop.startsWith('outline')||prop==='box-shadow'||prop==='column-rule-color') return 'bd';
+  return null;
+};
+_DK.val=function(prop,val){
+  const k=_DK.kind(prop); if(!k||!val) return null;
+  if(prop==='box-shadow'){
+    // only light "ring" shadows (used as borders) are changed; real shadows get deeper
+    return val.replace(_DK.RE,c=>{const v=_DK.parse(c); if(!v) return c; const l=_DK.hsl(v[0],v[1],v[2])[2];
+      return l>.7?_DK.map(c,'bd'):(l<.2?'rgba(0,0,0,'+Math.min(.6,(v[3]||1)*2.5).toFixed(2)+')':c);});
+  }
+  const out=val.replace(_DK.RE,c=>_DK.map(c,k));
+  return out===val?null:out;
+};
+// parts of the page that have their own dark design
+_DK.SKIP=/#home-panel|\.mj-|\.cc-|#cc-|\.um-|\.hm-|\.th-btn|\.usr-/;
+_DK.sheet=function(){
+  if(document.getElementById('dk-auto')) return;
+  const out=[];
+  const pre=sel=>sel.split(/,(?![^(]*\))/).map(x=>{x=x.trim();
+    if(/^:root\b/.test(x)) return x.replace(/^:root/,'html[data-theme=dark]');
+    if(/^html\b/.test(x)) return x.replace(/^html/,'html[data-theme=dark]');
+    return 'html[data-theme=dark] '+x;}).join(',');
+  const walk=(rules,wrap)=>{
+    for(const r of rules){
+      if(r.cssRules&&r.media){ walk(r.cssRules,'@media '+r.media.mediaText); continue; }
+      if(!r.selectorText||!r.style||_DK.SKIP.test(r.selectorText)||/data-theme|html\.inv/.test(r.selectorText)) continue;
+      const decl=[];
+      for(let i=0;i<r.style.length;i++){
+        const p=r.style[i]; let v=r.style.getPropertyValue(p);
+        if(p.startsWith('--')){ // colour variables
+          const t=v.trim(); const k=/bg|surf|bdr|line|lt\b|-lt|card/.test(p)?(/bdr|line/.test(p)?'bd':'bg'):/tx|ink/.test(p)?'fg':null;
+          if(k&&_DK.parse(t)){ const m=_DK.map(t,k); if(m!==t) decl.push(p+':'+m); }
+          continue;
+        }
+        const m=_DK.val(p,v); if(m) decl.push(p+':'+m+(r.style.getPropertyPriority(p)?' !important':''));
+      }
+      if(decl.length){ const t=pre(r.selectorText)+'{'+decl.join(';')+'}'; out.push(wrap?wrap+'{'+t+'}':t); }
+    }
+  };
+  for(const sh of document.styleSheets){ try{ if(sh.ownerNode&&(sh.ownerNode.id==='dk-auto'||sh.ownerNode.id==='theme3d')) continue; walk(sh.cssRules,''); }catch(e){} }
+  const st=document.createElement('style'); st.id='dk-auto'; st.textContent=out.join('\n'); document.head.appendChild(st);
+};
+// inline styles: map on the element, remember the original value per property
+_DK.orig=new WeakMap(); _DK.done=new Set(); _DK.busy=false;
+_DK.inline=function(el){
+  if(!el.style||!el.style.length) return;
+  if(el.closest&&el.closest('#home-panel,.um-bg,.um-menu,#cc-modal,svg')) return;
+  let o=_DK.orig.get(el);
+  for(let i=0;i<el.style.length;i++){
+    const p=el.style[i]; if(!_DK.kind(p)) continue;
+    const cur=el.style.getPropertyValue(p);
+    if(o&&o[p]&&o[p].m===cur) continue;               // already ours
+    const m=_DK.val(p,cur); if(!m) continue;
+    if(!o){ o={}; _DK.orig.set(el,o); }
+    el.style.setProperty(p,m,el.style.getPropertyPriority(p));
+    o[p]={v:cur,m:el.style.getPropertyValue(p)}; _DK.done.add(el);   // browser-normalised value
+  }
+};
+_DK.scan=function(root){
+  _DK.busy=true;
+  if(root.nodeType===1){ _DK.inline(root); root.querySelectorAll('[style]').forEach(_DK.inline); }
+  _DK.busy=false;
+};
+_DK.obs=new MutationObserver(list=>{
+  if(_DK.busy) return; _DK.busy=true;
+  for(const m of list){
+    if(m.type==='attributes') _DK.inline(m.target);
+    else m.addedNodes.forEach(n=>{ if(n.nodeType===1){ _DK.inline(n); n.querySelectorAll&&n.querySelectorAll('[style]').forEach(_DK.inline); } });
+  }
+  _DK.obs.takeRecords(); _DK.busy=false;
+});
+_DK.on=function(){
+  _DK.sheet(); _DK.scan(document.body);
+  _DK.obs.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['style']});
+};
+_DK.off=function(){
+  _DK.obs.disconnect(); _DK.busy=true;
+  _DK.done.forEach(el=>{ const o=_DK.orig.get(el); if(!o) return;
+    for(const p in o){ if(el.style.getPropertyValue(p)===o[p].m) el.style.setProperty(p,o[p].v,el.style.getPropertyPriority(p)); }
+    _DK.orig.delete(el); });
+  _DK.done.clear(); _DK.busy=false;
+};
 function _applyTheme(){
   const home=document.body&&document.body.classList.contains('home-mode');
   const de=document.documentElement; de.dataset.theme=_theme;
-  // Home is natively dark; the other pages are natively light
-  de.classList.toggle('inv', home ? _theme==='light' : _theme==='dark');
+  de.classList.toggle('inv', home && _theme==='light');   // Home is natively dark
+  if(document.body){ if(_theme==='dark'){ if(!_DK.active){ _DK.on(); _DK.active=true; } }
+                     else if(_DK.active){ _DK.off(); _DK.active=false; } }
   document.querySelectorAll('.th-lbl').forEach(el=>el.textContent=_theme==='dark'?'Light':'Dark');
+  if(window._chartTheme) _chartTheme();
+}
+/* ── CHARTS: theme colours + 3D look (gradient bars, soft shadows, raised donuts) ── */
+function _shade(c,amt){
+  const v=_DK.parse(String(c)); if(!v) return c;
+  let [h,s,l]=_DK.hsl(v[0],v[1],v[2]); l=Math.max(0,Math.min(1,l+amt));
+  const o=_DK.rgb(h,s,l); return 'rgba('+o.join(',')+','+v[3]+')';
+}
+function _gradFill(base){
+  return function(ctx){
+    const ch=ctx.chart, a=ch.chartArea; const b=Array.isArray(base)?base[ctx.dataIndex%base.length]:base;
+    if(!a||typeof b!=='string') return b;
+    const hz=ch.options.indexAxis==='y';
+    const g=ch.ctx.createLinearGradient(hz?a.left:0,hz?0:a.bottom,hz?a.right:0,hz?0:a.top);
+    g.addColorStop(0,_shade(b,-.12)); g.addColorStop(.55,b); g.addColorStop(1,_shade(b,.14));
+    return g;
+  };
+}
+function _chartCfgTheme(cfg){
+  const dk=_theme==='dark', o=cfg.options=cfg.options||{};
+  const tick=dk?'#a3abc2':'#5b6478', grid=dk?'rgba(255,255,255,.06)':'rgba(15,23,42,.06)', surf=dk?'#141b2e':'#ffffff';
+  for(const k in (o.scales||{})){
+    const sc=o.scales[k]; sc.grid=sc.grid||{}; sc.ticks=sc.ticks||{};
+    if(sc.grid.display!==false) sc.grid.color=grid;
+    sc.ticks.color=tick; sc.border=Object.assign(sc.border||{},{color:grid});
+    if(sc.title) sc.title.color=tick;
+    if(sc.pointLabels) sc.pointLabels.color=tick;
+    if(sc.angleLines) sc.angleLines.color=grid;
+  }
+  o.plugins=o.plugins||{};
+  const lg=o.plugins.legend=o.plugins.legend||{}; lg.labels=lg.labels||{}; lg.labels.color=tick;
+  if(o.plugins.title) o.plugins.title.color=dk?'#eef1f8':'#14161c';
+  o.plugins.tooltip=Object.assign({backgroundColor:dk?'rgba(10,14,26,.95)':'rgba(20,24,36,.92)',borderColor:dk?'rgba(255,255,255,.12)':'rgba(0,0,0,0)',
+    borderWidth:1,padding:10,cornerRadius:10,titleFont:{weight:'700'},boxPadding:4},o.plugins.tooltip||{});
+  const type=cfg.type;
+  if(type==='bar'){ // room for the value labels
+    const lp=o.layout=o.layout||{}; const pd=lp.padding=(typeof lp.padding==='object'&&lp.padding)||{};
+    if(o.indexAxis==='y') pd.right=Math.max(pd.right||0,44); else pd.top=Math.max(pd.top||0,18);
+  }
+  ((cfg.data&&cfg.data.datasets)||[]).forEach(ds=>{
+    const t=ds.type||type;
+    if(t==='bar'){
+      if(ds._rfaiBg===undefined) ds._rfaiBg=ds.backgroundColor;
+      const b=ds._rfaiBg;
+      if(typeof b==='string'||(Array.isArray(b)&&b.every(x=>typeof x==='string'))) ds.backgroundColor=_gradFill(b);
+      if(ds.borderRadius===undefined) ds.borderRadius=6;
+      if(ds.borderSkipped===undefined) ds.borderSkipped=false;
+    }
+    if(t==='doughnut'||t==='pie'||t==='polarArea'){
+      const bc=ds.borderColor;
+      if(bc===undefined||bc==='#fff'||bc==='#ffffff'||bc==='white'||bc==='#141b2e') ds.borderColor=surf;
+      if(ds.hoverOffset===undefined) ds.hoverOffset=10;
+    }
+    if(t==='line'&&typeof ds.pointBorderColor==='string'&&/^#fff/.test(ds.pointBorderColor)) ds.pointBorderColor=surf;
+  });
+  return cfg;
+}
+const _RFAI3D={id:'rfai3d',
+  beforeInit(chart){ _chartCfgTheme(chart.config); chart.options=chart.config.options; },
+  beforeDatasetDraw(chart,args){
+    const c=chart.ctx, dk=_theme==='dark', t=args.meta.type;
+    c.save();
+    if(t==='line'){ const col=args.meta.dataset&&args.meta.dataset.options&&args.meta.dataset.options.borderColor;
+      c.shadowColor=typeof col==='string'?_shade(col,0):'rgba(0,0,0,.3)'; c.shadowBlur=dk?14:8; c.shadowOffsetY=4; }
+    else { c.shadowColor=dk?'rgba(0,0,0,.55)':'rgba(15,23,42,.22)'; c.shadowBlur=t==='doughnut'||t==='pie'?18:10;
+      c.shadowOffsetX=t==='doughnut'||t==='pie'?0:2; c.shadowOffsetY=t==='doughnut'||t==='pie'?8:5; }
+  },
+  afterDatasetDraw(chart){ chart.ctx.restore(); },
+  // value labels: bar values / stack totals, donut centre total
+  afterDatasetsDraw(chart){
+    const c=chart.ctx, dk=_theme==='dark', type=chart.config.type, o=chart.options;
+    if(o.plugins&&o.plugins.rfaiLabels===false) return;
+    const fmt=v=>{ v=+v; if(!isFinite(v)) return ''; const a=Math.abs(v);
+      return a>=1e7?(v/1e7).toFixed(1)+'Cr':a>=1e5?(v/1e5).toFixed(1)+'L':a>=1e4?(v/1e3).toFixed(0)+'k':Math.round(v).toLocaleString(); };
+    c.save(); c.font="700 10.5px 'DM Sans',system-ui,sans-serif"; c.fillStyle=dk?'#dfe3ee':'#334155';
+    if(type==='bar'){
+      const hz=o.indexAxis==='y', metas=chart.getSortedVisibleDatasetMetas().filter(m=>m.type==='bar');
+      if(!metas.length){ c.restore(); return; }
+      const n=metas[0].data.length; const xs=o.scales&&(o.scales.x||{}), ys=o.scales&&(o.scales.y||{});
+      const stacked=!!((xs&&xs.stacked)||(ys&&ys.stacked));
+      if(n>16||(!stacked&&metas.length*n>24)){ c.restore(); return; }
+      if(stacked){
+        const groups={}; metas.forEach(m=>{ const k=m.stack||'s'; (groups[k]=groups[k]||[]).push(m); });
+        Object.values(groups).forEach(ms=>{
+          for(let i=0;i<n;i++){
+            let tot=0,edge=null;
+            ms.forEach(m=>{ const v=chart.data.datasets[m.index].data[i]; const el=m.data[i]; if(!el||!v) return; tot+=+v;
+              const e=hz?el.x:el.y; edge=edge==null?e:(hz?Math.max(edge,e):Math.min(edge,e)); });
+            if(!tot||edge==null) continue;
+            const el=ms[0].data[i]; c.textAlign=hz?'left':'center'; c.textBaseline=hz?'middle':'bottom';
+            hz?c.fillText(fmt(tot),edge+6,el.y):c.fillText(fmt(tot),el.x,edge-4);
+          }
+        });
+      } else {
+        metas.forEach(m=>{ m.data.forEach((el,i)=>{ const v=chart.data.datasets[m.index].data[i]; if(v==null||v===0||typeof v==='object') return;
+          c.textAlign=hz?'left':'center'; c.textBaseline=hz?'middle':'bottom';
+          const t=fmt(v)+(o.plugins&&o.plugins.rfaiSuffix||'');
+          hz?c.fillText(t,el.x+6,el.y):c.fillText(t,el.x,el.y-4); }); });
+      }
+    }
+    if(type==='doughnut'){
+      const m=chart.getDatasetMeta(0); const el=m&&m.data[0]; if(!el){ c.restore(); return; }
+      const data=(chart.data.datasets[0].data||[]).map(Number).filter(isFinite);
+      const tot=data.reduce((a,b)=>a+b,0); if(!tot){ c.restore(); return; }
+      const inner=el.innerRadius; if(inner<26){ c.restore(); return; }
+      c.textAlign='center'; c.textBaseline='middle';
+      c.font="800 "+Math.min(22,Math.round(inner*.42))+"px 'DM Sans',system-ui,sans-serif"; c.fillStyle=dk?'#f1f3f9':'#111827';
+      c.fillText(fmt(tot),el.x,el.y-6);
+      c.font="600 10px 'DM Sans',system-ui,sans-serif"; c.fillStyle=dk?'#a3abc2':'#64748b';
+      c.fillText('total',el.x,el.y+12);
+    }
+    c.restore();
+  }
+};
+if(window.Chart){ Chart.register(_RFAI3D); }
+function _chartTheme(){
+  if(!window.Chart) return;
+  const dk=_theme==='dark';
+  Chart.defaults.color=dk?'#a3abc2':'#5b6478';
+  Chart.defaults.borderColor=dk?'rgba(255,255,255,.06)':'rgba(15,23,42,.06)';
+  Chart.defaults.font.family="'DM Sans',system-ui,sans-serif";
+  const all=[]; try{ Object.values(_charts||{}).forEach(c=>all.push(c)); }catch(e){}
+  try{ Object.values(_finCharts||{}).forEach(c=>all.push(c)); }catch(e){}
+  try{ if(_expandChart) all.push(_expandChart); }catch(e){}
+  all.forEach(ch=>{ try{ _chartCfgTheme(ch.config); ch.options=ch.config.options; ch.update('none'); }catch(e){} });
+  if(window._oap3dRedraw) _oap3dRedraw();
 }
 function toggleTheme(){
   _theme=_theme==='dark'?'light':'dark';
   try{ localStorage.setItem('rfai-theme',_theme); }catch(e){}
   _applyTheme();
 }
+document.documentElement.dataset.theme=_theme;
 document.addEventListener('DOMContentLoaded',_applyTheme);
 function switchTab(tab){
   _activeTab=tab;
@@ -9567,25 +9832,47 @@ function _renderDashWithData(j){
   const avgDelayVal = j.avgDelayPending||j.avgDelay||0;
   const pend30 = (j.byMonth||[]).reduce((s,m)=>s+((m.agingBreakdown?.['30-60']||0)+(m.agingBreakdown?.['60-90']||0)+(m.agingBreakdown?.['>90']||0)),0);
   if(el){
+    // compact 3D cards: value · share of all SRs · trend by RFAI month · biggest circle
+    const BM=(j.byMonth||[]).slice(-8), BC=j.byCircle||[];
+    const ser=f=>BM.map(m=>{const v=f(m);return v==null?null:+v;});
+    const p30=m=>(m.agingBreakdown?.['30-60']||0)+(m.agingBreakdown?.['60-90']||0)+(m.agingBreakdown?.['>90']||0);
+    const topC=st=>{ if(!st||!BC.length) return '';
+      const b=BC.slice().sort((a,c)=>(c.statuses?.[st]||0)-(a.statuses?.[st]||0))[0];
+      const v=b&&(b.statuses?.[st]||0); return v?'Top circle: <b>'+_hmEsc(b.circle)+'</b> '+v.toLocaleString():''; };
+    const pc=v=>tot?Math.round(v/tot*100):0;
     const kpiDefs=[
-      {k:'k-all', l:'Grand Total',     v:tot,                    s:'all SRs in view',                               pct:100,       ik:'k-all'},
-      {k:'k-on',  l:'OnAir',           v:s['OnAir']||0,          s:oaR+'% of total',                                pct:oaR,       ik:'k-on'},
-      {k:'k-pe',  l:'OnAir Pending',   v:s['OnAir Pending']||0,  s:pctPending+'% · '+avgDelayVal+'d avg delay',     pct:pctPending,ik:'k-pe'},
-      {k:'k-pri', l:'Open PRI',        v:s['Open PRI']||0,       s:(tot?Math.round((s['Open PRI']||0)/tot*100):0)+'% · PRI blocking OnAir', pct:tot?Math.round((s['Open PRI']||0)/tot*100):0, ik:'k-pri'},
-      {k:'k-rj',  l:'RFAI Rejected',   v:s['Rejected RFAI']||0,  s:pctRej+'% · re-offer needed',                   pct:pctRej,    ik:'k-rj'},
-      {k:'k-op',  l:'Pending >30D',    v:pend30,                 s:(tot?Math.round(pend30/tot*100):0)+'% of OnAir Pending', pct:tot?Math.round(pend30/tot*100):0, ik:'k-pend30'},
-      {k:'k-avg', l:'Avg OnAir Delay', v:avgDelayVal+'d',        s:'days to go OnAir',                              pct:Math.min(avgDelayVal,120)/120*100, ik:'k-avg', noFmt:true},
+      {c:'#6366f1',l:'Total SRs',     v:tot,                    sh:100, noShare:true, sub:BC.length+' circles · '+(j.byMonth||[]).length+' months', tr:ser(m=>m.total), ik:'k-all'},
+      {c:'#10b981',l:'OnAir',         v:s['OnAir']||0,          sh:oaR,                     sub:topC('OnAir'),         tr:ser(m=>m.statuses['OnAir']||0), ik:'k-on', dl:'OnAir', st:'OnAir'},
+      {c:'#f59e0b',l:'OnAir Pending', v:s['OnAir Pending']||0,  sh:pctPending,              sub:topC('OnAir Pending'), tr:ser(m=>m.statuses['OnAir Pending']||0), ik:'k-pe', dl:'OnAir Pending', st:'OnAir Pending'},
+      {c:'#3b82f6',l:'Open PRI',      v:s['Open PRI']||0,       sh:pc(s['Open PRI']||0),    sub:topC('Open PRI')||'PRI blocking OnAir', tr:ser(m=>m.statuses['Open PRI']||0), ik:'k-pri', dl:'Open PRI', st:'Open PRI'},
+      {c:'#ef4444',l:'RFAI Rejected', v:s['Rejected RFAI']||0,  sh:pctRej,                  sub:topC('Rejected RFAI')||'re-offer needed', tr:ser(m=>m.statuses['Rejected RFAI']||0), ik:'k-rj', dl:'RFAI Rejected', st:'Rejected RFAI'},
+      {c:'#f97316',l:'Pending >30 d', v:pend30,                 sh:pc(pend30),              sub:((s['OnAir Pending']||0)?Math.round(pend30/(s['OnAir Pending'])*100):0)+'% of OnAir Pending', tr:ser(p30), ik:'k-pend30', dl:'Pending >30D'},
+      {c:'#a855f7',l:'Avg OnAir delay',v:avgDelayVal,           sh:Math.min(avgDelayVal,180)/180*100, unit:'d', sub:'days from Final RFAI · PRI excl.', tr:ser(m=>m.avgDelay), ik:'k-avg', dl:'Avg OnAir Delay', noShare:true},
     ];
+    const spark=(arr,c)=>{
+      const v=arr.filter(x=>x!=null); if(v.length<2) return '';
+      const mx=Math.max(...v), mn=Math.min(...v), W=64, H=24, n=arr.length;
+      const pts=arr.map((x,i)=>x==null?null:[(i/(n-1))*W, H-2-((x-mn)/((mx-mn)||1))*(H-4)]).filter(Boolean);
+      const d=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+      const last=pts[pts.length-1];
+      return '<svg class="k3-sp" viewBox="0 0 '+W+' '+H+'" aria-hidden="true"><path d="'+d+' L'+W+' '+H+' L0 '+H+'Z" fill="'+c+'" opacity=".14"/>'+
+        '<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'+
+        '<circle cx="'+last[0].toFixed(1)+'" cy="'+last[1].toFixed(1)+'" r="2.4" fill="'+c+'"/></svg>';
+    };
+    const months=BM.map(m=>m.mk);
     el.innerHTML=kpiDefs.map(c=>`
-      <div class="kpi ${c.k}" onclick="drillKpi('','${c.l}')">
-        <div class="kpi-top">
-          <div class="kpi-label">${c.l}</div>
-          <div class="kpi-icon"><svg viewBox="0 0 24 24">${kpiIcons[c.ik]||''}</svg></div>
-        </div>
-        <div class="kpi-val">${c.noFmt?c.v:(typeof c.v==='number'?c.v.toLocaleString():c.v)}</div>
-        <div class="kpi-sub">${c.s}</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.min(c.pct,100)}%"></div></div>
-      </div>`).join('');
+      <button class="k3" style="--k:${c.c}" onclick="drillKpi('${c.st||''}','${c.dl||c.l}')"
+        title="${c.l}: ${typeof c.v==='number'?c.v.toLocaleString():c.v}${c.unit||''}${c.noShare?'':' ('+Math.round(c.sh)+'% of all SRs)'}\nTrend by RFAI month: ${months[0]||''} – ${months[months.length-1]||''}\nClick to open these SRs">
+        <span class="k3-ic"><svg viewBox="0 0 24 24">${kpiIcons[c.ik]||''}</svg></span>
+        <span class="k3-main">
+          <span class="k3-l">${c.l}</span>
+          <span class="k3-row"><span class="k3-v kpi-val">${typeof c.v==='number'?c.v.toLocaleString():c.v}</span>${c.unit?'<span class="k3-u">'+c.unit+'</span>':''}
+            ${c.noShare?'':'<span class="k3-p">'+Math.round(c.sh)+'%</span>'}</span>
+          <span class="k3-s">${c.sub||''}</span>
+        </span>
+        ${spark(c.tr,c.c)}
+        <span class="k3-bar"><i style="width:${Math.max(2,Math.min(100,c.sh))}%"></i></span>
+      </button>`).join('');
     requestAnimationFrame(()=>requestAnimationFrame(_kpiCountUp));
 
     // ── Legacy RFAI bucket (data before April 2024) ──────────────────────
@@ -9736,7 +10023,7 @@ function _renderDashWithData(j){
 
   // ── OnAir rate by circle bar ──────────────────────────────────────────────
   const top12=j.byCircle.slice(0,12);
-  mkChart('c-oarate',{type:'bar',data:{labels:top12.map(x=>x.circle),datasets:[{label:'OnAir %',data:top12.map(x=>x.oaRate),backgroundColor:top12.map(x=>x.oaRate>=80?'#10b981':x.oaRate>=50?'#f59e0b':'#ef4444'),borderRadius:8,barPercentage:.65}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{max:100,beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:10}}}},onClick:(_,els)=>{if(els.length){const ci=top12[els[0].index];_drillOpen({circle:ci.circle},'Circle: '+ci.circle,ci.total+' sites');}}}});
+  mkChart('c-oarate',{type:'bar',data:{labels:top12.map(x=>x.circle),datasets:[{label:'OnAir %',data:top12.map(x=>x.oaRate),backgroundColor:top12.map(x=>x.oaRate>=80?'#10b981':x.oaRate>=50?'#f59e0b':'#ef4444'),borderRadius:8,barPercentage:.65}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},rfaiSuffix:'%'},scales:{y:{max:100,beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:10}}}},onClick:(_,els)=>{if(els.length){const ci=top12[els[0].index];_drillOpen({circle:ci.circle},'Circle: '+ci.circle,ci.total+' sites');}}}});
   // Table data for c-oarate
   _setCvTbl('cv-oarate',['Circle','Total','OnAir','OA Rate%'],
     j.byCircle.map(c=>{const oa=c.statuses?.['OnAir']||0;return[c.circle,c.total,oa,c.oaRate+'%'];}));
@@ -12851,6 +13138,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeExpand(); })
   }
 
   // ══ 3D ENGINE ══
+  window._oap3dRedraw=function(){ try{ _draw3D(); }catch(e){} };
   function _draw3D(){
     if(!_3dData) return;
     const canvas = document.getElementById('oap3d-canvas');
@@ -12903,12 +13191,15 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeExpand(); })
       };
     }
 
-    // Clear
-    ctx.fillStyle='#f0f4ff';
+    // Clear (theme aware)
+    const _dk3=_theme==='dark';
+    const _bg3=ctx.createRadialGradient(W/2,H*.45,10,W/2,H*.5,Math.max(W,H)*.7);
+    _bg3.addColorStop(0,_dk3?'#1a2340':'#f7f9ff'); _bg3.addColorStop(1,_dk3?'#0b1020':'#e6ecfb');
+    ctx.fillStyle=_bg3;
     ctx.fillRect(0,0,W,H);
 
     // Draw grid floor
-    ctx.strokeStyle='rgba(30,58,138,.1)';
+    ctx.strokeStyle=_dk3?'rgba(148,163,255,.14)':'rgba(30,58,138,.1)';
     ctx.lineWidth=0.8;
     for(let i=0;i<=displayCircles.length;i++){
       const x=i*GAP_X - (displayCircles.length*GAP_X)/2;
@@ -13032,7 +13323,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeExpand(); })
     displayCircles.forEach((circ,ci)=>{
       const bx=ci*GAP_X-(displayCircles.length*GAP_X)/2+GAP_X/2;
       const p=project3D(bx,-12,(displayCats.length*GAP_Z)/2+GAP_Z);
-      ctx.fillStyle='#374151';
+      ctx.fillStyle=_dk3?'#c4c9d6':'#374151';
       ctx.font=`bold ${Math.min(10,Math.max(7,W/90))}px DM Sans,sans-serif`;
       ctx.fillText(circ.length>6?circ.slice(0,6):circ, p.sx, p.sy);
     });
@@ -13299,5 +13590,86 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeExpand(); })
     </div>
   </div>
 </div>
+<style id="theme3d">
+/* ══ THEME 3D — depth layer for every page except Home (both themes) ══
+   Tokens: light = paper white cards on cool grey; dark = navy glass cards.
+   Cards get a top highlight, a layered drop shadow and lift on hover. */
+:root{
+  --t-bg:#edf0f6; --t-card:#ffffff; --t-card2:#f8f9fc; --t-line:rgba(15,23,42,.08); --t-tx:#111827; --t-tx2:#5b6478;
+  --t-hi:rgba(255,255,255,.95);
+  --t-sh:0 1px 2px rgba(15,23,42,.06),0 12px 28px -14px rgba(15,23,42,.22),0 2px 0 rgba(15,23,42,.025);
+  --t-sh-h:0 2px 4px rgba(15,23,42,.07),0 22px 44px -18px rgba(15,23,42,.30);
+  --t-glass:rgba(255,255,255,.82);
+}
+html[data-theme=dark]{
+  --t-bg:#090d18; --t-card:#141b2e; --t-card2:#10162a; --t-line:rgba(255,255,255,.075); --t-tx:#eef1f8; --t-tx2:#a3abc2;
+  --t-hi:rgba(255,255,255,.07);
+  --t-sh:0 1px 0 rgba(0,0,0,.35),0 18px 40px -18px rgba(0,0,0,.85),0 2px 0 rgba(0,0,0,.2);
+  --t-sh-h:0 1px 0 rgba(0,0,0,.35),0 26px 52px -18px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.04);
+  --t-glass:rgba(11,15,28,.82);
+}
+body:not(.home-mode){background:var(--t-bg) !important;
+  background-image:radial-gradient(900px 500px at -5% -10%,rgba(228,0,0,.07),transparent 60%),radial-gradient(900px 600px at 105% 0%,rgba(99,102,241,.08),transparent 60%) !important;
+  background-attachment:fixed !important}
+html[data-theme=dark] body:not(.home-mode){background-image:radial-gradient(900px 520px at -5% -10%,rgba(255,30,45,.13),transparent 60%),radial-gradient(900px 620px at 105% 0%,rgba(99,102,241,.14),transparent 60%) !important}
+
+/* top bar + tabs: glass with an Airtel-red edge */
+.tbar{background:var(--t-glass) !important;backdrop-filter:blur(14px) saturate(1.4);-webkit-backdrop-filter:blur(14px) saturate(1.4);
+  border-bottom:1px solid var(--t-line) !important;box-shadow:0 1px 0 var(--t-hi) inset,0 8px 24px -16px rgba(0,0,0,.35) !important}
+.tbar::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#b8000c,#ff1f2d 40%,#ff7a45)}
+.tabbar{background:var(--t-glass) !important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--t-line) !important}
+.tab{border-radius:10px 10px 0 0}
+.tab.active{color:#e40000 !important;background:linear-gradient(180deg,rgba(228,0,0,.10),rgba(228,0,0,0)) !important;border-bottom-color:#e40000 !important;
+  text-shadow:0 0 18px rgba(255,31,45,.35)}
+html[data-theme=dark] .tab.active{color:#ff4d57 !important}
+.d-filterbar{background:var(--t-glass) !important;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--t-line) !important}
+
+/* cards */
+.chart-card,.fin-card,#rfai-summary-panel,.rsp-wrap{
+  background:linear-gradient(180deg,var(--t-card),var(--t-card2)) !important;border:1px solid var(--t-line) !important;border-radius:18px !important;
+  box-shadow:inset 0 1px 0 var(--t-hi),var(--t-sh) !important;transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s}
+.chart-card:hover,.fin-card:hover{transform:translateY(-3px);box-shadow:inset 0 1px 0 var(--t-hi),var(--t-sh-h) !important}
+.chart-card::before{height:3px !important;opacity:.85;background:linear-gradient(90deg,#e40000,#ff5a5f 45%,rgba(255,122,69,0)) !important}
+.chart-card .chart-title{border-bottom:1px solid var(--t-line) !important}
+.chart-card .ct-label{font-size:13px !important;font-weight:800 !important;letter-spacing:-.01em}
+.d-row{gap:16px !important}
+.d-section{margin-bottom:16px !important}
+
+/* ── compact 3D KPI cards (Dashboard) ── */
+.d-kpis{display:grid !important;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:10px !important;padding:14px 20px 10px !important;overflow:visible !important}
+.k3{all:unset;box-sizing:border-box;position:relative;display:grid;grid-template-columns:34px auto minmax(0,1fr);column-gap:10px;row-gap:1px;align-items:center;min-width:0;cursor:pointer;
+  padding:10px 12px 13px;border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,var(--t-card),var(--t-card2));border:1px solid var(--t-line);
+  box-shadow:inset 0 1px 0 var(--t-hi),inset 3px 0 0 var(--k),var(--t-sh);transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s}
+.k3::after{content:'';position:absolute;right:-30px;top:-40px;width:110px;height:110px;border-radius:50%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--k) 22%,transparent),transparent 70%);pointer-events:none}
+.k3:hover{transform:translateY(-3px) perspective(600px) rotateX(3deg);box-shadow:inset 0 1px 0 var(--t-hi),inset 3px 0 0 var(--k),var(--t-sh-h),0 10px 26px -12px color-mix(in srgb,var(--k) 60%,transparent)}
+.k3:focus-visible{outline:2px solid var(--k);outline-offset:2px}
+.k3-ic{grid-column:1;grid-row:1/3;width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,color-mix(in srgb,var(--k) 75%,#fff),var(--k) 55%,color-mix(in srgb,var(--k) 70%,#000));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -2px 0 rgba(0,0,0,.18),0 6px 14px -4px color-mix(in srgb,var(--k) 70%,transparent)}
+.k3-ic svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round}
+.k3-main{display:contents}
+.k3-l{grid-column:2/4;grid-row:1;position:relative;z-index:1;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--t-tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k3-row{grid-column:2;grid-row:2;display:flex;align-items:baseline;gap:5px;min-width:0;position:relative;z-index:1}
+.k3-v{font-size:21px;font-weight:800;letter-spacing:-.03em;color:var(--t-tx);font-variant-numeric:tabular-nums;line-height:1.15}
+.k3-u{font-size:12px;font-weight:700;color:var(--t-tx2)}
+.k3-p{font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:20px;color:var(--k);background:color-mix(in srgb,var(--k) 14%,transparent)}
+html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
+.k3-s{grid-column:1/4;grid-row:3;margin-top:4px;position:relative;z-index:1;font-size:10.5px;color:var(--t-tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k3-s b{color:var(--t-tx);font-weight:700}
+.k3-sp{grid-column:3;grid-row:2;justify-self:end;width:100%;max-width:64px;min-width:0;height:22px;position:relative;z-index:1;overflow:visible}
+.k3-bar{position:absolute;left:12px;right:12px;bottom:5px;height:3px;border-radius:3px;background:var(--t-line)}
+.k3-bar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,color-mix(in srgb,var(--k) 60%,transparent),var(--k));box-shadow:0 0 8px color-mix(in srgb,var(--k) 60%,transparent)}
+
+/* other pages' KPI cards: same depth */
+.mg-kpi,.ui-kpi{border-radius:14px !important;box-shadow:inset 0 1px 0 var(--t-hi),var(--t-sh) !important;transition:transform .2s,box-shadow .2s !important}
+.mg-kpi:hover,.ui-kpi:hover{transform:translateY(-3px) !important;box-shadow:inset 0 1px 0 var(--t-hi),var(--t-sh-h) !important}
+.sstrip{background:var(--t-glass) !important;backdrop-filter:blur(10px);border-bottom:1px solid var(--t-line) !important}
+.ms-btn,.d-filterbar select,.btn{border-radius:10px !important;box-shadow:inset 0 1px 0 var(--t-hi),0 1px 2px rgba(15,23,42,.06)}
+.btnp{box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 6px 16px -6px rgba(228,0,0,.6) !important}
+@media(max-width:700px){.d-kpis{grid-template-columns:1fr 1fr;padding:12px 12px 8px !important}.k3-sp{display:none}}
+@media(max-width:520px){.tbar .th-lbl,.tbar .logo .lnm,.tbar .logo .lsb{display:none}.tbar .trr{gap:6px}.tbar #chgBtn{padding:6px 8px}}
+</style>
 </body>
 </html>
