@@ -85,6 +85,20 @@ label.l{display:block;font-size:15px;font-weight:700;margin-bottom:9px}
   form{margin-top:22px}
   .swoosh,.foot{display:none}
 }
+.ins-bg{position:fixed;inset:0;z-index:2000;background:rgba(20,10,14,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+@media(min-width:700px){.ins-bg{align-items:center}}
+.ins-box{width:100%;max-width:380px;background:#fff;border-radius:20px;padding:22px 22px 18px;box-shadow:0 24px 60px rgba(60,10,20,.35);font-family:inherit;color:#16181f;text-align:center}
+.ins-box img{width:64px;height:64px;border-radius:16px;box-shadow:0 6px 16px rgba(228,0,0,.25)}
+.ins-box h3{font-size:19px;font-weight:800;margin:10px 0 8px}
+.ins-box ol{text-align:left;margin:0 0 10px 20px;font-size:14.5px;line-height:1.6;color:#2c313c}
+.ins-box p{font-size:13px;color:#6b7180;line-height:1.5;margin:0 0 14px}
+.ins-i{display:inline-block;border:1px solid #c9cdd6;border-radius:6px;padding:0 5px;font-size:12px}
+.ins-ok{width:100%;border:none;border-radius:12px;padding:12px;font:inherit;font-weight:700;font-size:15px;color:#fff;background:linear-gradient(180deg,#f01818,#d40000);cursor:pointer}
+.install{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:22px;padding:13px;border-radius:12px;cursor:pointer;
+  font:inherit;font-size:14.5px;font-weight:700;color:#c4000f;background:#fff5f5;border:1.5px dashed #f3b5bb}
+.install:hover{background:#ffecee;border-style:solid}
+.install svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.install[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -125,6 +139,7 @@ label.l{display:block;font-size:15px;font-weight:700;margin-bottom:9px}
     <div class="or">OR</div>
     <div class="help"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
       <div>No account or forgot your password?<b>Ask the Airtel 5G Deployment Admin.</b></div></div>
+    <button type="button" class="install" data-install hidden onclick="installApp()"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 7v7M9 11l3 3 3-3M10 18h4"/></svg>Install the app on your phone</button>
   </form>
   <div class="foot" aria-hidden="true">FASTER NETWORKS<br>STRONGER INDIA</div>
 </main>
@@ -151,6 +166,34 @@ document.getElementById('f').onsubmit=async function(e){
   err.classList.add('on'); go.disabled=false; go.classList.remove('busy'); document.getElementById('gl').textContent='Sign in';
   document.getElementById('p').select();
 };
+</script>
+<script>
+/* ── Install as an app (phone / computer) ── */
+(function(){
+  var deferred=null;
+  var standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  var ios=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  function btns(){ return document.querySelectorAll('[data-install]'); }
+  // phones and tablets only: computers don't get the install button
+  var mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||ios;
+  window._isPhone=mobile;
+  function show(on){ btns().forEach(function(b){ b.hidden=!(on&&mobile); }); }
+  window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferred=e; show(true); });
+  window.addEventListener('appinstalled',function(){ deferred=null; show(false); });
+  function tip(html){
+    var bg=document.createElement('div'); bg.className='ins-bg';
+    bg.innerHTML='<div class="ins-box" role="dialog" aria-modal="true" aria-label="Install the app"><img src="/icon-192.png" alt=""><h3>Install the app</h3>'+html+
+      '<button class="ins-ok" type="button">OK</button></div>';
+    bg.onclick=function(ev){ if(ev.target===bg||ev.target.className==='ins-ok') bg.remove(); };
+    document.body.appendChild(bg);
+  }
+  window.installApp=async function(){
+    if(deferred){ deferred.prompt(); var r=await deferred.userChoice; deferred=null; if(r&&r.outcome==='accepted') show(false); return; }
+    if(ios) tip('<ol><li>Tap the <b>Share</b> button <span class="ins-i">⬆︎</span> at the bottom of Safari.</li><li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol><p>It opens full screen with the airtel icon. Use Safari for this, not Chrome.</p>');
+    else tip('<ol><li>Open the browser menu <b>⋮</b> (top right).</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li></ol><p>Use Chrome on Android.</p>');
+  };
+  document.addEventListener('DOMContentLoaded',function(){ show(!standalone); });
+})();
 </script>
 <script>if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('/sw.js').catch(function(){});</script>
 </body>

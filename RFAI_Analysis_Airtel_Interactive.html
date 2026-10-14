@@ -1255,6 +1255,17 @@ html[data-theme=dark]:not(.inv) .um-row .r,html[data-theme=light].inv .um-row .r
 html[data-theme=dark]:not(.inv) .um-menu .who .role,html[data-theme=light].inv .um-menu .who .role,
 html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row .r.a{background:#3a1218;color:#ff8a92}
 </style>
+<style>
+.ins-bg{position:fixed;inset:0;z-index:2000;background:rgba(20,10,14,.45);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+@media(min-width:700px){.ins-bg{align-items:center}}
+.ins-box{width:100%;max-width:380px;background:#fff;border-radius:20px;padding:22px 22px 18px;box-shadow:0 24px 60px rgba(60,10,20,.35);font-family:inherit;color:#16181f;text-align:center}
+.ins-box img{width:64px;height:64px;border-radius:16px;box-shadow:0 6px 16px rgba(228,0,0,.25)}
+.ins-box h3{font-size:19px;font-weight:800;margin:10px 0 8px}
+.ins-box ol{text-align:left;margin:0 0 10px 20px;font-size:14.5px;line-height:1.6;color:#2c313c}
+.ins-box p{font-size:13px;color:#6b7180;line-height:1.5;margin:0 0 14px}
+.ins-i{display:inline-block;border:1px solid #c9cdd6;border-radius:6px;padding:0 5px;font-size:12px}
+.ins-ok{width:100%;border:none;border-radius:12px;padding:12px;font:inherit;font-weight:700;font-size:15px;color:#fff;background:linear-gradient(180deg,#f01818,#d40000);cursor:pointer}
+</style>
 <style>#dropzone.dg{border-color:#3b82f6!important;background:#eff6ff!important;}</style>
 <div id="app">
 <nav class="bnav" id="bnav" aria-label="Sections">
@@ -4794,6 +4805,7 @@ function usrMenu(ev){
   m.innerHTML='<div class="who"><b>'+_hmEsc(_me.user||'')+'</b><span>Signed in</span><br><span class="role">'+(_me.role==='admin'?'Admin':'Viewer')+'</span></div>'+
     (_me.role==='admin'?'<button role="menuitem" onclick="_umClose();usersOpen()">'+_UI.us+'Manage users</button>':'')+
     (_me.user!=='admin'?'<button role="menuitem" onclick="_umClose();pwOpen()">'+_UI.pw+'Change password</button>':'')+
+    ((!window._isPhone||matchMedia('(display-mode: standalone)').matches||navigator.standalone)?'':'<button role="menuitem" onclick="_umClose();installApp()"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 7v7M9 11l3 3 3-3"/></svg>Install the app</button>')+
     '<button role="menuitem" class="out" onclick="signOut()">'+_UI.out+'Sign out</button>';
   document.body.appendChild(m);
   const b=ev.currentTarget.getBoundingClientRect(), w=m.offsetWidth;
@@ -14289,6 +14301,34 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 @media(max-width:700px){#mj-kpis.mj-kpis{grid-template-columns:1fr 1fr}#mj-kpis .k3-sp{display:none}}
 @media(max-width:520px){.tbar .th-lbl,.tbar .logo .lnm,.tbar .logo .lsb{display:none}.tbar .trr{gap:6px}.tbar #chgBtn{padding:6px 8px}}
 </style>
+<script>
+/* ── Install as an app (phone / computer) ── */
+(function(){
+  var deferred=null;
+  var standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  var ios=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  function btns(){ return document.querySelectorAll('[data-install]'); }
+  // phones and tablets only: computers don't get the install button
+  var mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||ios;
+  window._isPhone=mobile;
+  function show(on){ btns().forEach(function(b){ b.hidden=!(on&&mobile); }); }
+  window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferred=e; show(true); });
+  window.addEventListener('appinstalled',function(){ deferred=null; show(false); });
+  function tip(html){
+    var bg=document.createElement('div'); bg.className='ins-bg';
+    bg.innerHTML='<div class="ins-box" role="dialog" aria-modal="true" aria-label="Install the app"><img src="/icon-192.png" alt=""><h3>Install the app</h3>'+html+
+      '<button class="ins-ok" type="button">OK</button></div>';
+    bg.onclick=function(ev){ if(ev.target===bg||ev.target.className==='ins-ok') bg.remove(); };
+    document.body.appendChild(bg);
+  }
+  window.installApp=async function(){
+    if(deferred){ deferred.prompt(); var r=await deferred.userChoice; deferred=null; if(r&&r.outcome==='accepted') show(false); return; }
+    if(ios) tip('<ol><li>Tap the <b>Share</b> button <span class="ins-i">⬆︎</span> at the bottom of Safari.</li><li>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol><p>It opens full screen with the airtel icon. Use Safari for this, not Chrome.</p>');
+    else tip('<ol><li>Open the browser menu <b>⋮</b> (top right).</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li></ol><p>Use Chrome on Android.</p>');
+  };
+  document.addEventListener('DOMContentLoaded',function(){ show(!standalone); });
+})();
+</script>
 <script>if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('/sw.js').catch(function(){});</script>
 </body>
 </html>
