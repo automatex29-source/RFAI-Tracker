@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="manifest" href="/manifest.webmanifest">
+<script>/* app install info for phones only (computers don't offer installing) */
+if(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)){
+  document.write('<link rel="manifest" href="/manifest.webmanifest">');
+}</script>
 <meta name="theme-color" content="#e40000">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -195,6 +198,9 @@ document.getElementById('f').onsubmit=async function(e){
   document.addEventListener('DOMContentLoaded',function(){ show(!standalone); });
 })();
 </script>
-<script>if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('/sw.js').catch(function(){});</script>
+<script>if('serviceWorker' in navigator&&location.protocol!=='file:'){
+  if(window._isPhone) navigator.serviceWorker.register('/sw.js').catch(function(){});
+  else navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){});
+}</script>
 </body>
 </html>
