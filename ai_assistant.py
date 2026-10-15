@@ -113,11 +113,14 @@ def _tools():
                  "required": ["name", "columns", "rows"]}}},
              "required": ["title", "sheets"]}},
         {"name": "make_powerpoint",
-         "description": "Build a polished Airtel-styled PowerPoint deck (cover and closing slides are added automatically). Slide kinds: 'title' (title, subtitle, up to 3 headline kpis), 'section' (title, subtitle), 'kpis' (title, kpis:[{label,value,sub}]), 'chart' (title, chart_type, categories, series:[{name,values}], insights), 'table' (title, columns, rows; long tables continue on extra slides), 'bullets' (title, bullets). Write each slide title as the takeaway (e.g. 'MH holds 26% of pending SRs'), put context in subtitle, and give charts 2-4 short insights. A good review deck: title, kpis, 2-4 charts, 1-2 tables, bullets with key points/next steps.",
+         "description": "Build a polished Airtel-styled PowerPoint deck (cover and closing slides are added automatically). Slide kinds: 'title' (title, subtitle, up to 3 headline kpis), 'summary' (executive summary: stats:[{value,label}] up to 3 big numbers, points:[{head,text}] up to 3 findings), 'kpis' (title, kpis:[{label,value,sub}]), 'stat' (one big number: value, label, text:[2-3 lines of context]), 'chart' (title, chart_type, categories, series:[{name,values}], insights), 'table' (title, columns, rows; add a 'Total' row; long tables continue on extra slides), 'bullets' (title, bullets), 'section' (title, subtitle), 'closing' (dark next-steps slide: bullets). Write each slide title as the takeaway (e.g. 'MH holds 26% of pending SRs', no full stop), put context in subtitle, give charts 2-4 short insights and every slide speaker notes. A good review deck: title, summary, kpis, 2-4 charts, 1-2 tables, closing with next steps.",
          "input_schema": {"type": "object", "properties": {
              "title": {"type": "string"},
              "slides": {"type": "array", "items": {"type": "object", "properties": {
-                 "kind": {"type": "string", "enum": ["title", "section", "bullets", "kpis", "table", "chart"]},
+                 "kind": {"type": "string", "enum": ["title", "summary", "kpis", "stat", "chart", "table", "bullets", "section", "closing"]},
+                 "stats": {"type": "array", "items": {"type": "object", "properties": {"value": {"type": "string"}, "label": {"type": "string"}}}},
+                 "points": {"type": "array", "items": {"type": "object", "properties": {"head": {"type": "string"}, "text": {"type": "string"}}}},
+                 "value": {"type": "string"}, "label": {"type": "string"}, "text": {"type": "array", "items": {"type": "string"}},
                  "title": {"type": "string"}, "subtitle": {"type": "string"},
                  "bullets": {"type": "array", "items": {"type": "string"}},
                  "kpis": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "string"}, "sub": {"type": "string"}}}},
