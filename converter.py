@@ -1245,6 +1245,7 @@ def month_cells(r, months):
     running=(st_final=='OnAir' and oa_d is not None) or st_final in _PEND_ST
     anchor_d=_pdate(r.get('finalRfai','')) or _pdate(r.get('rfaiNotice',''))
     pf=_pdate(r.get('priFirst','')); pl=_pdate(r.get('priLast',''))
+    rj=_pdate(r.get('rfaiRej','')); ro=_pdate(r.get('rfaiReoffer',''))
     today=date.today()
     for mk_col in months:
         ms=mk_sort_val(mk_col)
@@ -1255,6 +1256,8 @@ def month_cells(r, months):
         else:
             try:
                 mend=min(_mk_end(mk_col),today)
+                if rj and rj<=mend and (ro is None or ro>mend) and (anchor_d is None or anchor_d>mend or anchor_d<=rj):
+                    out.append(('Rejected RFAI','—','N/A')); continue      # rejected and not yet re-offered at month end
                 if pf and pf<=mend and (pl is None or pl>mend): st='Open PRI'
                 elif anchor_d is None or anchor_d>mend: st='RFAI Pending'
                 else: st='OnAir Pending'
