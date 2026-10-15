@@ -319,16 +319,22 @@ class LocalBrain:
                 r = run('make_data_excel', {'filters': q['filters'], 'title': title + ' SR list'})
                 if not r.get('error'): files.append(r['_file'])
         elif q['out'] == 'ppt':
-            slides = [{'kind': 'title', 'title': title, 'subtitle': scope[0].upper() + scope[1:] + ' · ' + date.today().strftime('%d %B %Y')},
-                      {'kind': 'kpis', 'title': 'At a glance', 'kpis': [{'label': 'SRs', 'value': f'{total:,}'},
-                                                                         {'label': 'Groups', 'value': str(len(table))},
-                                                                         {'label': 'Highest', 'value': str(lead[0])},
-                                                                         {'label': 'Highest count', 'value': _fmt(lead_n)}]},
-                      {'kind': 'chart', 'title': what, 'chart_type': ctype if ctype != 'pie' else 'column', 'categories': cats[:20],
+            sc = scope[0].upper() + scope[1:]
+            slides = [{'kind': 'title', 'title': title, 'subtitle': sc,
+                       'kpis': [{'label': 'SRs', 'value': f'{total:,}'}, {'label': 'Highest', 'value': str(lead[0])}, {'label': 'Groups', 'value': str(len(table))}]},
+                      {'kind': 'kpis', 'title': f'{lead[0]} leads with {_fmt(lead_n)} SRs', 'subtitle': f'{what} view, {scope}',
+                       'kpis': [{'label': 'Total SRs', 'value': f'{total:,}', 'sub': 'in scope'},
+                                {'label': 'Groups', 'value': str(len(table)), 'sub': cols[0]},
+                                {'label': 'Highest', 'value': str(lead[0]), 'sub': f'{_fmt(lead_n)} SRs'},
+                                {'label': 'Share of top', 'value': f'{lead_n / total:.0%}' if total else '-', 'sub': 'of total'}]},
+                      {'kind': 'chart', 'title': f'{what}: {lead[0]} is highest' if not q['date_group'] else what,
+                       'subtitle': f'Number of SRs, {scope}', 'chart_type': ctype, 'categories': cats[:20],
                        'series': [{'name': s['name'], 'values': s['values'][:20]} for s in series]}]
-            for i in range(0, min(len(table), 54), 18):
-                slides.append({'kind': 'table', 'title': what + (f' ({i // 18 + 1})' if len(table) > 18 else ''), 'columns': cols, 'rows': table[i:i + 18]})
-            slides.append({'kind': 'bullets', 'title': 'Key points', 'bullets': self._points(table, cols, total, two, q)})
+            trows = [list(r) for r in table]
+            if two: trows.append(['Total'] + [int(sum(r[j] for r in table)) for j in range(1, len(cols))])
+            elif not q['date_group']: trows.append(['Total', total, ''])
+            slides.append({'kind': 'table', 'title': what, 'subtitle': f'Number of SRs, {scope}', 'columns': cols, 'rows': trows})
+            slides.append({'kind': 'bullets', 'title': 'Key points', 'subtitle': 'What the data shows', 'bullets': self._points(table, cols, total, two, q)})
             files.append(run('make_powerpoint', {'title': title, 'slides': slides})['_file'])
         if files:
             ans = {'ppt': 'Your **PowerPoint** is ready.', 'excel': 'Your **Excel** file is ready.', 'chart': 'Your **chart** is ready.'}[q['out']] + ' ' + ans
@@ -359,51 +365,85 @@ class LocalBrain:
         st = tot['statuses']; T = tot['total']
         order = ['OnAir', 'OnAir Pending', 'Open PRI', 'RFAI Pending', 'Rejected RFAI']
         pend = sum(st.get(s, 0) for s in ('OnAir Pending', 'Open PRI', 'RFAI Pending'))
+        oa = st.get('OnAir', 0); pct = lambda n: f'{n / T:.0%} of total'
         title = self._title(f, 'RFAI status review')
-        slides = [{'kind': 'title', 'title': title, 'subtitle': scope[0].upper() + scope[1:] + ' · ' + date.today().strftime('%d %B %Y')},
-                  {'kind': 'kpis', 'title': 'At a glance', 'kpis': [
-                      {'label': 'Total SRs', 'value': f'{T:,}'}, {'label': 'OnAir', 'value': f"{st.get('OnAir', 0):,}"},
-                      {'label': 'Pending', 'value': f'{pend:,}'}, {'label': 'Open PRI', 'value': f"{st.get('Open PRI', 0):,}"},
-                      {'label': 'Rejected RFAI', 'value': f"{st.get('Rejected RFAI', 0):,}"},
-                      {'label': 'OnAir rate', 'value': f"{st.get('OnAir', 0) / T:.0%}"},
-                      {'label': 'Avg days', 'value': _fmt(tot.get('avg_days'))}]},
-                  {'kind': 'chart', 'title': 'Status mix', 'chart_type': 'pie', 'categories': [s for s in order if st.get(s)],
-                   'series': [{'name': 'SRs', 'values': [st[s] for s in order if st.get(s)]}]}]
-        bc = run('aggregate', {'group_by': ['circle', 'status'], 'filters': f})
+        sc = scope[0].upper() + scope[1:]
+        slides = [{'kind': 'title', 'title': title, 'subtitle': f'{sc}: RFAI to OnAir progress, open PRI and ageing',
+                   'kpis': [{'label': 'Total SRs', 'value': f'{T:,}'}, {'label': 'OnAir', 'value': f'{oa / T:.0%}'},
+                            {'label': 'Pending', 'value': f'{pend:,}'}]},
+                  {'kind': 'kpis', 'title': f'{oa / T:.0%} of SRs are OnAir; {pend:,} still pending',
+                   'subtitle': f'Snapshot of {T:,} SRs {scope}', 'kpis': [
+                      {'label': 'Total SRs', 'value': f'{T:,}', 'sub': 'in scope'},
+                      {'label': 'OnAir', 'value': f'{oa:,}', 'sub': pct(oa)},
+                      {'label': 'OnAir Pending', 'value': f"{st.get('OnAir Pending', 0):,}", 'sub': pct(st.get('OnAir Pending', 0))},
+                      {'label': 'Open PRI', 'value': f"{st.get('Open PRI', 0):,}", 'sub': pct(st.get('Open PRI', 0))},
+                      {'label': 'RFAI Pending', 'value': f"{st.get('RFAI Pending', 0):,}", 'sub': pct(st.get('RFAI Pending', 0))},
+                      {'label': 'Rejected RFAI', 'value': f"{st.get('Rejected RFAI', 0):,}", 'sub': pct(st.get('Rejected RFAI', 0))},
+                      {'label': 'Avg days', 'value': _fmt(tot.get('avg_days')), 'sub': 'final RFAI to OnAir / today'},
+                      {'label': 'Pending share', 'value': f'{pend / T:.0%}', 'sub': f'{pend:,} SRs not yet OnAir'}]}]
+        mix = [s for s in order if st.get(s)]
+        if len(mix) > 1:
+            slides.append({'kind': 'chart', 'title': f'{max(mix, key=lambda m: st[m])} is the largest status group ({st[max(mix, key=lambda m: st[m])] / T:.0%})',
+                           'subtitle': 'Share of SRs by current status', 'chart_type': 'pie', 'categories': mix,
+                           'series': [{'name': 'SRs', 'values': [st[s] for s in mix]}],
+                           'insights': [f'{s}: {st[s]:,} ({st[s] / T:.0%})' for s in sorted(mix, key=lambda m: -st[m])][:4]})
+        bc = run('aggregate', {'group_by': ['circle', 'status'], 'filters': f}); p = None
         if bc.get('rows'):
             p = pd.DataFrame(bc['rows']).pivot_table(index='circle', columns='status', values='srs', aggfunc='sum', fill_value=0)
             p = p[[s for s in order if s in p.columns]]
             p = p.loc[p.sum(axis=1).sort_values(ascending=False).index]
             if len(p) > 1:
+                pc = [c for c in ('OnAir Pending', 'Open PRI', 'RFAI Pending') if c in p.columns]
+                ps = p[pc].sum(axis=1).sort_values(ascending=False) if pc else None
                 top = p.head(15)
-                slides.append({'kind': 'chart', 'title': 'Status by circle', 'chart_type': 'stacked_column', 'categories': [str(i) for i in top.index],
+                ttl = (f'{ps.index[0]} has the most pending SRs ({int(ps.iloc[0]):,})' if ps is not None and len(ps) else 'Status by circle')
+                slides.append({'kind': 'chart', 'title': ttl, 'subtitle': 'SRs by circle and current status' + (' (top 15 circles)' if len(p) > 15 else ''),
+                               'chart_type': 'stacked_column', 'categories': [str(i) for i in top.index],
                                'series': [{'name': c, 'values': [int(v) for v in top[c]]} for c in top.columns]})
-                cols = ['Circle'] + list(p.columns) + ['Total']
-                rows = [[i] + [int(v) for v in r] + [int(r.sum())] for i, r in zip(p.index, p.values)]
-                for i in range(0, min(len(rows), 36), 18):
-                    slides.append({'kind': 'table', 'title': 'Circle-wise status' + (f' ({i // 18 + 1})' if len(rows) > 18 else ''), 'columns': cols, 'rows': rows[i:i + 18]})
+                cols = ['Circle'] + list(p.columns) + ['Total', 'OnAir %']
+                rows = [[i] + [int(v) for v in r] + [int(r.sum()), f"{(r['OnAir'] if 'OnAir' in p.columns else 0) / max(r.sum(), 1):.0%}"] for i, r in zip(p.index, p.values) for r in [pd.Series(r, index=p.columns)]]
+                tr = p.sum(axis=0)
+                rows.append(['Total'] + [int(v) for v in tr] + [int(tr.sum()), f"{(tr['OnAir'] if 'OnAir' in p.columns else 0) / max(tr.sum(), 1):.0%}"])
+                slides.append({'kind': 'table', 'title': 'Circle-wise status', 'subtitle': 'Number of SRs per circle by current status', 'columns': cols, 'rows': rows})
+        tr_ = run('aggregate', {'date_group': {'field': 'onair', 'period': 'month'}, 'filters': f})
+        if len(tr_.get('rows') or []) > 1:
+            rr = tr_['rows'][-12:]
+            best = max(rr, key=lambda r: r['srs'])
+            slides.append({'kind': 'chart', 'title': f"OnAir peaked in {pd.Timestamp(best['onair_month'] + '-01').strftime('%b %Y')} with {best['srs']:,} sites",
+                           'subtitle': 'Sites going OnAir per month (last 12 months)', 'chart_type': 'line',
+                           'categories': [pd.Timestamp(r['onair_month'] + '-01').strftime("%b'%y") for r in rr],
+                           'series': [{'name': 'OnAir', 'values': [r['srs'] for r in rr]}]})
         ff = dict(f); ff['status'] = 'pending'
         ag = run('aggregate', {'group_by': ['ageing_group'], 'filters': ff})
-        if ag.get('rows'):
-            rr = sorted(ag['rows'], key=lambda r: str(r['ageing_group']))
-            slides.append({'kind': 'chart', 'title': 'Pending SRs by ageing', 'chart_type': 'column', 'categories': [str(r['ageing_group']) for r in rr],
-                           'series': [{'name': 'Pending SRs', 'values': [r['srs'] for r in rr]}]})
-        old = run('list_srs', {'filters': ff, 'sort_by': 'days', 'descending': True, 'limit': 15})
+        ago = {'0-30': 0, '30-60': 1, '60-90': 2, '>90': 3}
+        rr = sorted(ag.get('rows') or [], key=lambda r: ago.get(str(r['ageing_group']), 9))
+        if len(rr) > 1:
+            old_ = sum(r['srs'] for r in rr if r['ageing_group'] == '>90')
+            slides.append({'kind': 'chart', 'title': f'{old_ / max(pend, 1):.0%} of pending SRs are older than 90 days',
+                           'subtitle': 'Pending SRs by days since final RFAI (PRI days excluded)', 'chart_type': 'column',
+                           'categories': [str(r['ageing_group']) + ' days' for r in rr], 'series': [{'name': 'Pending SRs', 'values': [r['srs'] for r in rr]}]})
+        old = run('list_srs', {'filters': ff, 'sort_by': 'days', 'descending': True, 'limit': 13})
         if old.get('rows'):
-            slides.append({'kind': 'table', 'title': 'Oldest pending SRs', 'columns': ['SR', 'Circle', 'Status', 'Days', 'Final RFAI'],
-                           'rows': [[x.get('srNo'), x.get('circle'), x.get('srStatus'), x.get('delay'), x.get('finalRfai')] for x in old['rows']]})
-        pts = [f'{T:,} SRs in scope; {st.get("OnAir", 0):,} OnAir ({st.get("OnAir", 0) / T:.0%}) and {pend:,} still pending.']
+            slides.append({'kind': 'table', 'title': 'Oldest pending SRs need follow-up', 'subtitle': 'Top 13 pending SRs by days since final RFAI',
+                           'columns': ['SR', 'Site ID', 'Circle', 'Status', 'Days', 'Final RFAI', 'Project'],
+                           'rows': [[x.get('srNo'), x.get('siteId'), x.get('circle'), x.get('srStatus'), x.get('delay'), x.get('finalRfai'), x.get('bPrj')] for x in old['rows']]})
+        pts = [f'{T:,} SRs in scope: {oa:,} OnAir ({oa / T:.0%}) and {pend:,} still pending ({pend / T:.0%}).']
+        if p is not None and len(p) > 1 and ps is not None and len(ps):
+            pts.append('Most pending: ' + ', '.join(f'{i} ({int(v):,})' for i, v in ps.head(3).items()) + '.')
         if st.get('Open PRI'): pts.append(f"{st['Open PRI']:,} SRs are held by an open PRI.")
-        if st.get('Rejected RFAI'): pts.append(f"{st['Rejected RFAI']:,} RFAI offers were rejected.")
-        if bc.get('rows') and len(p) > 1:
-            pc = [c for c in ('OnAir Pending', 'Open PRI', 'RFAI Pending') if c in p.columns]
-            if pc:
-                ps = p[pc].sum(axis=1).sort_values(ascending=False)
-                pts.append('Most pending: ' + ', '.join(f'{i} ({int(v):,})' for i, v in ps.head(3).items()) + '.')
-        slides.append({'kind': 'bullets', 'title': 'Key points', 'bullets': pts})
+        if st.get('Rejected RFAI'): pts.append(f"{st['Rejected RFAI']:,} RFAI offers were rejected and need a re-offer.")
+        if tot.get('avg_days') is not None: pts.append(f"Average {_fmt(tot['avg_days'])} days from final RFAI to OnAir (or today if pending).")
+        slides.append({'kind': 'bullets', 'title': 'Key points', 'subtitle': 'What the data shows', 'bullets': pts})
+        nxt = []
+        if p is not None and len(p) > 1 and ps is not None and len(ps): nxt.append(f'Review pending SRs in {", ".join(list(ps.index[:2]))} with circle teams.')
+        if rr and len(rr) > 1: nxt.append('Escalate SRs pending over 90 days and agree OnAir dates.')
+        if st.get('Open PRI'): nxt.append('Close open PRIs so blocked sites can go OnAir.')
+        if st.get('Rejected RFAI'): nxt.append('Follow up re-offers for rejected RFAIs.')
+        nxt.append('Track weekly OnAir run-rate against plan.')
+        slides.append({'kind': 'bullets', 'title': 'Next steps', 'subtitle': 'Suggested actions', 'bullets': nxt})
         r = run('make_powerpoint', {'title': title, 'slides': slides})
-        return (f"Your PowerPoint is ready: **{len(slides)} slides** for SRs {scope}: KPIs, status mix, circle-wise status, "
-                f"ageing and the oldest pending SRs."), [r['_file']], state, ['Export this to Excel']
+        return (f"Your PowerPoint is ready: **{len(slides) + 1}+ slides** for SRs {scope}: cover, KPIs, status mix, circle-wise status, "
+                f"OnAir trend, ageing, oldest pending SRs, key points and next steps."), [r['_file']], state, ['Export this to Excel']
 
     @staticmethod
     def _title(f, base):

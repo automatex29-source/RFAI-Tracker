@@ -113,14 +113,15 @@ def _tools():
                  "required": ["name", "columns", "rows"]}}},
              "required": ["title", "sheets"]}},
         {"name": "make_powerpoint",
-         "description": "Build an Airtel-styled PowerPoint deck. Slide kinds: 'title' (title, subtitle), 'bullets' (title, bullets), 'kpis' (title, kpis:[{label,value}]), 'table' (title, columns, rows), 'chart' (title, chart_type, categories, series:[{name,values}]).",
+         "description": "Build a polished Airtel-styled PowerPoint deck (cover and closing slides are added automatically). Slide kinds: 'title' (title, subtitle, up to 3 headline kpis), 'section' (title, subtitle), 'kpis' (title, kpis:[{label,value,sub}]), 'chart' (title, chart_type, categories, series:[{name,values}], insights), 'table' (title, columns, rows; long tables continue on extra slides), 'bullets' (title, bullets). Write each slide title as the takeaway (e.g. 'MH holds 26% of pending SRs'), put context in subtitle, and give charts 2-4 short insights. A good review deck: title, kpis, 2-4 charts, 1-2 tables, bullets with key points/next steps.",
          "input_schema": {"type": "object", "properties": {
              "title": {"type": "string"},
              "slides": {"type": "array", "items": {"type": "object", "properties": {
-                 "kind": {"type": "string", "enum": ["title", "bullets", "kpis", "table", "chart"]},
+                 "kind": {"type": "string", "enum": ["title", "section", "bullets", "kpis", "table", "chart"]},
                  "title": {"type": "string"}, "subtitle": {"type": "string"},
                  "bullets": {"type": "array", "items": {"type": "string"}},
-                 "kpis": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "string"}}}},
+                 "kpis": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "string"}, "sub": {"type": "string"}}}},
+                 "insights": {"type": "array", "items": {"type": "string"}},
                  "columns": {"type": "array", "items": {"type": "string"}}, "rows": {"type": "array", "items": {"type": "array"}},
                  "chart_type": {"type": "string", "enum": ["column", "bar", "line", "pie", "stacked_column"]},
                  "categories": {"type": "array", "items": {"type": "string"}},
@@ -442,89 +443,8 @@ class Assistant:
         wb.close()
 
     def _pptx(self, path, title, slides):
-        from pptx import Presentation
-        from pptx.util import Inches, Pt, Emu
-        from pptx.dml.color import RGBColor
-        from pptx.chart.data import CategoryChartData
-        from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
-        from pptx.enum.shapes import MSO_SHAPE
-        RED = RGBColor(0xE4, 0x00, 0x00); INK = RGBColor(0x1A, 0x1D, 0x24); GREY = RGBColor(0x6B, 0x71, 0x80); WHITE = RGBColor(255, 255, 255)
-        prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
-        blank = prs.slide_layouts[6]
-        W, H = prs.slide_width, prs.slide_height
-
-        def text(sl, x, y, w, h, s, size=18, bold=False, color=INK, align=None):
-            tb = sl.shapes.add_textbox(x, y, w, h); tf = tb.text_frame; tf.word_wrap = True
-            p = tf.paragraphs[0]; p.text = s; p.font.size = Pt(size); p.font.bold = bold; p.font.color.rgb = color; p.font.name = 'Calibri'
-            if align: p.alignment = align
-            return tf
-
-        def frame(sl, t, n):
-            bar = sl.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, W, Inches(0.12)); bar.fill.solid(); bar.fill.fore_color.rgb = RED; bar.line.fill.background()
-            text(sl, Inches(0.6), Inches(0.35), Inches(11.5), Inches(0.9), t, 30, True)
-            text(sl, Inches(0.6), H - Inches(0.5), Inches(8), Inches(0.35), 'airtel · RFAI Tracker · ' + title, 10, color=GREY)
-            text(sl, W - Inches(1.2), H - Inches(0.5), Inches(0.8), Inches(0.35), str(n), 10, color=GREY)
-
-        CT = {'column': XL_CHART_TYPE.COLUMN_CLUSTERED, 'bar': XL_CHART_TYPE.BAR_CLUSTERED, 'line': XL_CHART_TYPE.LINE_MARKERS,
-              'pie': XL_CHART_TYPE.PIE, 'stacked_column': XL_CHART_TYPE.COLUMN_STACKED}
-        PALH = ['#E40000', '#10B981', '#F59E0B', '#3B82F6', '#94A3B8', '#A855F7']
-        PAL = [RED, RGBColor(0x10, 0xB9, 0x81), RGBColor(0xF5, 0x9E, 0x0B), RGBColor(0x3B, 0x82, 0xF6), RGBColor(0x94, 0xA3, 0xB8), RGBColor(0xA8, 0x55, 0xF7)]
-        for n, s in enumerate(slides[:40], 1):
-            sl = prs.slides.add_slide(blank); k = s.get('kind', 'bullets')
-            if k == 'title':
-                bg = sl.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, W, H); bg.fill.solid(); bg.fill.fore_color.rgb = RED; bg.line.fill.background()
-                text(sl, Inches(0.9), Inches(0.6), Inches(4), Inches(0.8), 'airtel', 34, True, WHITE)
-                text(sl, Inches(0.9), Inches(2.6), Inches(11.5), Inches(1.6), s.get('title', title), 44, True, WHITE)
-                text(sl, Inches(0.9), Inches(4.2), Inches(11.5), Inches(1), s.get('subtitle') or datetime.now().strftime('%d %B %Y'), 20, color=RGBColor(0xFF, 0xE3, 0xE3))
-            else:
-                frame(sl, s.get('title', ''), n)
-                top = Inches(1.45); left = Inches(0.6); w = W - Inches(1.2); h = H - Inches(2.2)
-                if k == 'bullets':
-                    tf = text(sl, left, top, w, h, '', 20)
-                    for i, bt in enumerate(s.get('bullets') or []):
-                        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-                        p.text = '•  ' + str(bt); p.font.size = Pt(20); p.font.color.rgb = INK; p.space_after = Pt(10)
-                elif k == 'kpis':
-                    ks = (s.get('kpis') or [])[:8]; cols = min(4, max(1, len(ks))); cw = (w - Inches(0.3) * (cols - 1)) / cols
-                    for i, kp in enumerate(ks):
-                        x = left + (cw + Inches(0.3)) * (i % cols); y = top + Inches(2.1) * (i // cols)
-                        box = sl.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, int(x), int(y), int(cw), Inches(1.8))
-                        box.fill.solid(); box.fill.fore_color.rgb = RGBColor(0xFF, 0xF5, 0xF5); box.line.color.rgb = RGBColor(0xF0, 0xD6, 0xD9)
-                        text(sl, int(x) + Inches(0.25), int(y) + Inches(0.2), int(cw) - Inches(0.5), Inches(0.5), str(kp.get('label', '')).upper(), 12, True, GREY)
-                        text(sl, int(x) + Inches(0.25), int(y) + Inches(0.7), int(cw) - Inches(0.5), Inches(0.9), str(kp.get('value', '')), 32, True, RED)
-                elif k == 'table':
-                    cols = s.get('columns') or []; rows = (s.get('rows') or [])[:18]
-                    if cols:
-                        tb = sl.shapes.add_table(len(rows) + 1, len(cols), left, top, w, Inches(0.4) * (len(rows) + 1)).table
-                        for j, c in enumerate(cols):
-                            cell = tb.cell(0, j); cell.text = str(c); cell.fill.solid(); cell.fill.fore_color.rgb = INK
-                            pp = cell.text_frame.paragraphs[0]; pp.font.bold = True; pp.font.size = Pt(12); pp.font.color.rgb = WHITE
-                        for i, r in enumerate(rows, 1):
-                            for j in range(len(cols)):
-                                cell = tb.cell(i, j); v = r[j] if j < len(r) else ''
-                                cell.text = f'{v:,}' if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v if v is not None else '')
-                                cell.fill.solid(); cell.fill.fore_color.rgb = RGBColor(0xFF, 0xFA, 0xFA) if i % 2 else WHITE
-                                pp = cell.text_frame.paragraphs[0]; pp.font.size = Pt(11); pp.font.color.rgb = INK
-                elif k == 'chart':
-                    cd = CategoryChartData(); cd.categories = [str(c) for c in (s.get('categories') or [])]
-                    for se in s.get('series') or []: cd.add_series(str(se.get('name', '')), [float(v or 0) for v in se.get('values') or []])
-                    ct = s.get('chart_type', 'column')
-                    ch = sl.shapes.add_chart(CT.get(ct, XL_CHART_TYPE.COLUMN_CLUSTERED), left, top, w, h, cd).chart
-                    ch.has_legend = len(s.get('series') or []) > 1 or ct == 'pie'
-                    if ch.has_legend: ch.legend.position = XL_LEGEND_POSITION.BOTTOM; ch.legend.include_in_layout = False
-                    plot = ch.plots[0]
-                    if ct != 'line':
-                        plot.has_data_labels = True; plot.data_labels.font.size = Pt(11)
-                    if ct == 'pie':
-                        for i, pt in enumerate(plot.series[0].points):
-                            pt.format.fill.solid(); pt.format.fill.fore_color.rgb = RGBColor.from_string(_col(cd.categories[i].label, i, PALH)[1:])
-                    else:
-                        for i, se in enumerate(plot.series):
-                            c_ = RGBColor.from_string(_col(se.name, i, PALH)[1:])
-                            if ct == 'line': se.format.line.color.rgb = c_
-                            else: se.format.fill.solid(); se.format.fill.fore_color.rgb = c_
-            if s.get('notes'): sl.notes_slide.notes_text_frame.text = s['notes']
-        prs.save(path)
+        from ppt_builder import build_deck
+        build_deck(path, title, slides)
 
     def _png(self, path, a):
         import matplotlib; matplotlib.use('Agg')
