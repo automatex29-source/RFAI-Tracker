@@ -26,6 +26,9 @@ FREE_ENGINES = {   # OpenAI-compatible chat endpoints with free tiers
 MAX_TOOL_ROUNDS = 12
 _conversations = {}            # conv_id -> {"user":..., "messages":[...], "t":...}
 _conv_lock = threading.Lock()
+_tl = threading.local()        # PowerPoint options of the request being answered
+PPT_SLIDES = {'short': 5, 'standard': 10, 'detailed': 15}
+THEME_NAMES = {'airtel': 'Airtel Red', 'midnight': 'Midnight Dark', 'clean': 'Clean White', 'ocean': 'Ocean Blue'}
 
 STATUSES = ['OnAir', 'OnAir Pending', 'Open PRI', 'Rejected RFAI', 'RFAI Pending']
 GROUP_COLS = {'circle': 'circle', 'status': 'srStatus', 'category': 'category', 'project': 'bPrj',
@@ -188,8 +191,9 @@ class Assistant:
     def engine_label(self):
         return {'claude': 'Claude AI', 'gemini': 'Gemini AI · free', 'groq': 'Groq AI · free'}.get(self.engine(), 'Built-in · free & offline')
 
-    def chat(self, user, conv_id, text):
-        """Returns (conv_id, answer_markdown, files, suggestions)."""
+    def chat(self, user, conv_id, text, ppt=None):
+        """Returns (conv_id, answer_markdown, files, suggestions).
+        ppt: optional PowerPoint choices {length: short|standard|detailed, theme, images: none|art|ai}."""
         with _conv_lock:
             self._gc()
             conv = _conversations.get(conv_id) if conv_id else None
@@ -197,7 +201,14 @@ class Assistant:
                 conv_id = uuid.uuid4().hex; conv = {'user': user, 'messages': [], 'omsgs': [], 'last': None, 't': time.time()}
                 _conversations[conv_id] = conv
         conv['t'] = time.time()
+        if ppt:
+            conv['ppt'] = {'length': ppt.get('length') if ppt.get('length') in PPT_SLIDES else 'standard',
+                           'theme': ppt.get('theme') if ppt.get('theme') in THEME_NAMES else 'airtel',
+                           'images': ppt.get('images') if ppt.get('images') in ('none', 'art', 'ai') else 'none'}
+        _tl.ppt = conv.get('ppt') or {'length': 'standard', 'theme': 'airtel', 'images': 'none'}
         eng = self.engine()
+        if ppt and eng != 'builtin':
+            text += f"\n\n(PowerPoint settings chosen by the user: about {PPT_SLIDES[_tl.ppt['length']]} slides. Theme and pictures are applied automatically.)"
         if eng == 'builtin':
             return (conv_id,) + self._local(conv, text, user)
         try:
@@ -214,7 +225,7 @@ class Assistant:
 
     def _local(self, conv, text, user):
         from ai_local import LocalBrain
-        ans, files, state, sug = LocalBrain(self).answer(text, user, conv.get('last'))
+        ans, files, state, sug = LocalBrain(self).answer(text, user, conv.get('last'), getattr(_tl, 'ppt', None))
         if state is not None: conv['last'] = state
         return ans, files, sug
 
@@ -447,7 +458,8 @@ class Assistant:
 
     def _pptx(self, path, title, slides):
         from ppt_builder import build_deck
-        build_deck(path, title, slides)
+        o = getattr(_tl, 'ppt', None) or {}
+        build_deck(path, title, slides, o.get('theme', 'airtel'), o.get('images', 'none'))
 
     def _png(self, path, a):
         import matplotlib; matplotlib.use('Agg')

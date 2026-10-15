@@ -39,6 +39,32 @@ TINT = RGBColor(0xFF, 0xF0, 0xF1)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 DARK = RGBColor(0x17, 0x19, 0x21)
 DARK2 = RGBColor(0x24, 0x27, 0x32)
+HOT = RED                   # red used for text (brighter on dark themes)
+BG = WHITE                  # content slide background
+CARD = WHITE                # floating cards
+ROW = WHITE                 # table rows (alternating with SOFT)
+GREY_BAR = RGBColor(0xC7, 0xCB, 0xD3)
+ACC = 'E40000'
+COVER = ('F21414', '96000C')    # cover gradient; None = plain BG cover
+COVER_TXT = WHITE
+COVER_SUB = RGBColor(0xFF, 0xDD, 0xDF)
+DARK_LOGO = False               # white logo on content slides
+CLOSE_BG = DARK
+
+# Themes: name -> overrides of the colours above
+THEMES = {
+    'airtel': {},
+    'midnight': dict(BG=RGBColor(0x12, 0x14, 0x1B), CARD=RGBColor(0x1E, 0x21, 0x2B), ROW=RGBColor(0x17, 0x1A, 0x22),
+                     SOFT=RGBColor(0x1E, 0x21, 0x2B), INK=RGBColor(0xF2, 0xF3, 0xF6), INK2=RGBColor(0xC4, 0xC8, 0xD2),
+                     MUTED=RGBColor(0x8C, 0x93, 0xA3), LINE=RGBColor(0x30, 0x34, 0x40), TINT=RGBColor(0x3A, 0x14, 0x19),
+                     GREY_BAR=RGBColor(0x4A, 0x50, 0x5E), HOT=RGBColor(0xFF, 0x5C, 0x5C), COVER=('1C1F2A', '0B0C11'), DARK_LOGO=True,
+                     CLOSE_BG=RGBColor(0x9E, 0x00, 0x0C), DARK=RGBColor(0x2A, 0x2E, 0x3A), DARK2=RGBColor(0xB0, 0x00, 0x10)),
+    'clean': dict(COVER=None, COVER_TXT=RGBColor(0x16, 0x18, 0x1F), COVER_SUB=RGBColor(0x80, 0x86, 0x92),
+                  CLOSE_BG=RGBColor(0xF5, 0xF6, 0xF9), DARK2=WHITE),
+    'ocean': dict(RED=RGBColor(0x0B, 0x5C, 0xAD), HOT=RGBColor(0x0B, 0x5C, 0xAD), ACC='0B5CAD', TINT=RGBColor(0xEA, 0xF2, 0xFB), COVER=('1478D4', '082F5E'),
+                  COVER_SUB=RGBColor(0xD6, 0xE8, 0xFA), CLOSE_BG=RGBColor(0x0A, 0x24, 0x45), DARK2=RGBColor(0x13, 0x35, 0x5E)),
+}
+_BASE = None
 
 STATUS = {'onair': '10B981', 'onair pending': 'F59E0B', 'pending': 'F59E0B', 'open pri': '3B82F6',
           'rejected rfai': 'EF4444', 'rejected': 'EF4444', 'rfai pending': '94A3B8'}
@@ -64,7 +90,7 @@ def _kcol(label, i):
     for k, v in STATUS.items():
         if l == k or l.startswith(k + ' '): return v
     if 'onair' in l and 'pending' not in l: return STATUS['onair']
-    return 'E40000' if i == 0 else '1F2937'
+    return ACC if i == 0 else ('6B7280' if DARK_LOGO else '1F2937')
 
 
 def _icon(label, default='chart'):
@@ -96,11 +122,13 @@ class Deck:
         self.prs.core_properties.title = title
         self.prs.core_properties.author = 'RFAI Tracker'
         self.n = 0
+        self.images = {}
 
     # ── primitives ──────────────────────────────────────────────────────
     def _slide(self, bg=None):
         self.n += 1
         sl = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        bg = BG if bg is None and BG != WHITE else bg
         if bg is not None:
             sl.background.fill.solid(); sl.background.fill.fore_color.rgb = bg
         return sl
@@ -125,7 +153,8 @@ class Deck:
         return s
 
     @staticmethod
-    def text(sl, x, y, w, h, t, size=14, bold=False, color=INK, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, italic=False, spacing=None):
+    def text(sl, x, y, w, h, t, size=14, bold=False, color=None, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, italic=False, spacing=None):
+        color = INK if color is None else color          # resolved at call time so themes apply
         tb = sl.shapes.add_textbox(int(x), int(y), int(w), int(h)); tf = tb.text_frame
         tf.word_wrap = True; tf.vertical_anchor = anchor
         tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
@@ -161,7 +190,7 @@ class Deck:
         self.text(sl, M, Inches(0.42), Inches(10.9), Inches(0.95), title, size, True, INK, anchor=MSO_ANCHOR.BOTTOM)
         if subtitle:
             self.text(sl, M, Inches(1.42), Inches(10.9), Inches(0.4), subtitle, 15, False, MUTED)
-        self._logo(sl, W - M - Inches(1.25), Inches(0.5), Inches(0.43))
+        self._logo(sl, W - M - Inches(1.25), Inches(0.5), Inches(0.43), white=DARK_LOGO)
         self.text(sl, M, H - Inches(0.48), Inches(8), Inches(0.3), f'RFAI Tracker  ·  {self.title}', 10, color=MUTED)
         self.text(sl, W - M - Inches(3), H - Inches(0.48), Inches(3), Inches(0.3), str(self.n), 10, True, MUTED, align=PP_ALIGN.RIGHT)
         return TOP
@@ -169,22 +198,30 @@ class Deck:
     # ── slide kinds ─────────────────────────────────────────────────────
     def cover(self, s):
         sl = self._slide()
-        bg = self.box(sl, 0, 0, W, H, RED)
-        g = bg.fill; g.gradient(); g.gradient_angle = 135
-        g.gradient_stops[0].color.rgb = RGBColor(0xF2, 0x14, 0x14); g.gradient_stops[1].color.rgb = RGBColor(0x96, 0x00, 0x0C)
-        sw = ASSETS / 'swirl_faint.png'
-        if sw.exists(): sl.shapes.add_picture(str(sw), Inches(6.9), Inches(0.4), height=Inches(7.9))
-        self._logo(sl, Inches(0.8), Inches(0.75), Inches(0.62), white=True)
-        self.text(sl, Inches(0.8), Inches(2.35), Inches(8.3), Inches(2.3), s.get('title') or self.title, 50, True, WHITE, anchor=MSO_ANCHOR.BOTTOM)
-        self.text(sl, Inches(0.8), Inches(4.8), Inches(8.0), Inches(0.9), s.get('subtitle') or 'RFAI status review', 20, False, RGBColor(0xFF, 0xDD, 0xDF))
-        self.box(sl, Inches(0.8), Inches(6.3), Inches(3.1), Inches(0.46), RGBColor(0x7E, 0x00, 0x0A), shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.5)
+        img = self.images.get('cover')
+        if COVER:
+            bg = self.box(sl, 0, 0, W, H, RED)
+            g = bg.fill; g.gradient(); g.gradient_angle = 135
+            g.gradient_stops[0].color.rgb = _rgb(COVER[0]); g.gradient_stops[1].color.rgb = _rgb(COVER[1])
+        tw = Inches(8.3)
+        if img:
+            # picture fills the right part of the cover, text sits on the left
+            sl.shapes.add_picture(img, int(Inches(6.6)), 0, int(W - Inches(6.6)), int(H))
+            tw = Inches(5.5)
+        else:
+            sw = ASSETS / 'swirl_faint.png'
+            if sw.exists() and COVER: sl.shapes.add_picture(str(sw), Inches(6.9), Inches(0.4), height=Inches(7.9))
+        self._logo(sl, Inches(0.8), Inches(0.75), Inches(0.62), white=COVER is not None)
+        self.text(sl, Inches(0.8), Inches(1.9), tw, Inches(2.75), s.get('title') or self.title, 50 if not img else 42, True, COVER_TXT, anchor=MSO_ANCHOR.BOTTOM)
+        self.text(sl, Inches(0.8), Inches(4.8), tw, Inches(0.9), s.get('subtitle') or 'RFAI status review', 20, False, COVER_SUB)
+        self.box(sl, Inches(0.8), Inches(6.3), Inches(3.1), Inches(0.46), DARK if COVER is None else _rgb(COVER[1]), shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.5)
         self.text(sl, Inches(0.8), Inches(6.3), Inches(3.1), Inches(0.46), datetime.now().strftime('%d %B %Y').lstrip('0') + '  ·  RFAI Tracker',
                   12, True, WHITE, PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
         ks = (s.get('kpis') or [])[:3]
         x0, y0, cw, ch = Inches(9.3), Inches(1.45), Inches(3.45), Inches(1.4)
         for i, k in enumerate(ks):
             y = y0 + i * (ch + Inches(0.3))
-            self.box(sl, x0, y, cw, ch, WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.14, shadow=True)
+            self.box(sl, x0, y, cw, ch, CARD if COVER is not None else SOFT, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.14, shadow=True)
             self.icon_badge(sl, _icon(k.get('label'), 'tower'), x0 + Inches(0.28), y + (ch - Inches(0.7)) / 2, Inches(0.7), _rgb(_kcol(k.get('label'), i)))
             self.text(sl, x0 + Inches(1.2), y + Inches(0.24), cw - Inches(1.4), Inches(0.3), str(k.get('label', '')).upper(), 11, True, MUTED)
             self.text(sl, x0 + Inches(1.2), y + Inches(0.52), cw - Inches(1.4), Inches(0.7), str(k.get('value', '')), 34, True, INK, anchor=MSO_ANCHOR.MIDDLE)
@@ -216,7 +253,8 @@ class Deck:
                 self.text(sl, M + Inches(0.95), y, W - 2 * M - Inches(0.95), rh - Inches(0.1), [tuple(runs)], 16, anchor=MSO_ANCHOR.MIDDLE)
 
     def section(self, s):
-        sl = self._slide(DARK)
+        sl = self._slide(CLOSE_BG if CLOSE_BG != RGBColor(0xF5, 0xF6, 0xF9) else DARK)
+        if self.images.get('section'): sl.shapes.add_picture(self.images['section'], int(Inches(8.8)), 0, int(W - Inches(8.8)), int(H))
         self.icon_badge(sl, s.get('icon') or 'chart', Inches(0.9), Inches(2.2), Inches(0.9), RED)
         self.text(sl, Inches(0.9), Inches(3.4), Inches(11), Inches(1), s.get('title', ''), 42, True, WHITE)
         if s.get('subtitle'): self.text(sl, Inches(0.9), Inches(4.4), Inches(11), Inches(0.8), s['subtitle'], 18, color=RGBColor(0xC9, 0xCD, 0xD6))
@@ -243,7 +281,7 @@ class Deck:
         ph = H - top - Inches(0.75); pw = Inches(5.4)
         self.box(sl, M, top, pw, ph, TINT, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
         self.icon_badge(sl, s.get('icon') or _icon(s.get('label', ''), 'clock'), M + Inches(0.5), top + Inches(0.5), Inches(0.8), RED)
-        self.text(sl, M + Inches(0.5), top + Inches(1.5), pw - Inches(1), Inches(1.7), str(s.get('value', '')), 96, True, RED, anchor=MSO_ANCHOR.MIDDLE)
+        self.text(sl, M + Inches(0.5), top + Inches(1.5), pw - Inches(1), Inches(1.7), str(s.get('value', '')), 96, True, HOT, anchor=MSO_ANCHOR.MIDDLE)
         self.text(sl, M + Inches(0.5), top + Inches(3.25), pw - Inches(1), Inches(0.9), str(s.get('label', '')), 18, True, INK)
         tx = M + pw + Inches(0.6)
         body = s.get('text') or []
@@ -309,7 +347,7 @@ class Deck:
                 c = _rgb(_col(se.name, i)) if multi else RED
                 if ct == 'line':
                     se.format.line.color.rgb = c; se.format.line.width = Pt(3.25); se.smooth = False
-                    se.marker.format.fill.solid(); se.marker.format.fill.fore_color.rgb = WHITE
+                    se.marker.format.fill.solid(); se.marker.format.fill.fore_color.rgb = BG
                     se.marker.format.line.color.rgb = c; se.marker.size = 9
                 else:
                     se.format.fill.solid(); se.format.fill.fore_color.rgb = c
@@ -318,7 +356,7 @@ class Deck:
                         top_i = max(range(len(vals0)), key=lambda j: vals0[j])
                         if ct == 'bar': top_i = len(vals0) - 1 - top_i
                         for j, pt in enumerate(se.points):
-                            pt.format.fill.solid(); pt.format.fill.fore_color.rgb = RED if j == top_i else RGBColor(0xC7, 0xCB, 0xD3)
+                            pt.format.fill.solid(); pt.format.fill.fore_color.rgb = RED if j == top_i else GREY_BAR
             if len(cats) <= 24:
                 plot.has_data_labels = True; dl = plot.data_labels
                 dl.number_format = '#,##0'; dl.number_format_is_linked = False; dl.font.size = Pt(12)
@@ -336,7 +374,7 @@ class Deck:
         self.text(sl, x + Inches(0.95), y + Inches(0.3), w - Inches(1.2), Inches(0.5), 'Key insights', 16, True, INK, anchor=MSO_ANCHOR.MIDDLE)
         yy = y + Inches(1.1)
         for i, t in enumerate(items[:4]):
-            self.text(sl, x + Inches(0.3), yy, Inches(0.45), Inches(0.4), f'{i + 1:02d}', 15, True, RED)
+            self.text(sl, x + Inches(0.3), yy, Inches(0.45), Inches(0.4), f'{i + 1:02d}', 15, True, HOT)
             self.text(sl, x + Inches(0.8), yy, w - Inches(1.05), Inches(1.1), str(t), 14, color=INK)
             yy += Inches(min(1.3, 0.5 + 0.23 * (len(str(t)) // 30 + 1)))
 
@@ -376,15 +414,15 @@ class Deck:
                     if len(vals) > 2: peak[j] = max(vals)
             for i, r in enumerate(part, 1):
                 tr = str(r[0]).strip().lower() in ('total', 'grand total')
-                fill = TINT if tr else (WHITE if i % 2 else SOFT)
+                fill = TINT if tr else (ROW if i % 2 else SOFT)
                 for j in range(len(cols)):
                     v = r[j] if j < len(r) else ''
                     txt = _fmt(v) if numeric[j] else ('' if v is None else str(v))
                     color = INK; bold = tr or j == 0
                     sc = STATUS.get(txt.strip().lower())
                     if sc and not numeric[j]: color = _rgb(sc); bold = True
-                    if numeric[j] and 'day' in cols[j].lower() and (_num(v) or 0) > 90: color = RED; bold = True
-                    if not tr and j in peak and (_num(v) or 0) == peak[j] and peak[j] > 0: color = RED; bold = True
+                    if numeric[j] and 'day' in cols[j].lower() and (_num(v) or 0) > 90: color = HOT; bold = True
+                    if not tr and j in peak and (_num(v) or 0) == peak[j] and peak[j] > 0: color = HOT; bold = True
                     _cell(tb.cell(i, j), txt, bold, color, fill, PP_ALIGN.RIGHT if numeric[j] else PP_ALIGN.LEFT, fs)
 
     def bullets(self, s):
@@ -405,21 +443,27 @@ class Deck:
             self.text(sl, x + Inches(1.2), y + Inches(0.1), cw - Inches(1.45), ch - Inches(0.2), t, 16, False, INK, anchor=MSO_ANCHOR.MIDDLE)
 
     def closing(self, s):
-        sl = self._slide(DARK)
-        sw = ASSETS / 'swirl_faint.png'
-        if sw.exists(): sl.shapes.add_picture(str(sw), Inches(8.6), Inches(1.6), height=Inches(6.2))
-        self._logo(sl, M, Inches(0.55), Inches(0.5), white=True)
-        self.text(sl, M, Inches(1.35), Inches(9), Inches(0.9), s.get('title') or 'Next steps', 40, True, WHITE)
-        self.text(sl, M, Inches(2.2), Inches(9), Inches(0.5), s.get('subtitle') or 'Suggested actions from this review', 16, color=RGBColor(0xB8, 0xBD, 0xC8))
+        sl = self._slide(CLOSE_BG)
+        light = CLOSE_BG == RGBColor(0xF5, 0xF6, 0xF9)
+        fg = INK if light else WHITE
+        img = self.images.get('closing')
+        if img:
+            sl.shapes.add_picture(img, int(Inches(9.4)), 0, int(W - Inches(9.4)), int(H))
+        else:
+            sw = ASSETS / 'swirl_faint.png'
+            if sw.exists() and not light: sl.shapes.add_picture(str(sw), Inches(8.6), Inches(1.6), height=Inches(6.2))
+        self._logo(sl, M, Inches(0.55), Inches(0.5), white=not light)
+        self.text(sl, M, Inches(1.35), Inches(8.5), Inches(0.9), s.get('title') or 'Next steps', 40, True, fg)
+        self.text(sl, M, Inches(2.2), Inches(8.5), Inches(0.5), s.get('subtitle') or 'Suggested actions from this review', 16, color=MUTED if light else RGBColor(0xD0, 0xD4, 0xDC))
         items = [str(b) for b in (s.get('bullets') or [])][:5]
         y = Inches(3.0); rh = min(Inches(0.85), (H - y - Inches(0.9)) / max(len(items), 1))
         for i, t in enumerate(items):
-            self.box(sl, M, y + i * rh, Inches(8.4), rh - Inches(0.15), DARK2, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.2)
+            self.box(sl, M, y + i * rh, Inches(8.4), rh - Inches(0.15), DARK2, LINE if light else None, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.2)
             self.box(sl, M + Inches(0.18), y + i * rh + (rh - Inches(0.15) - Inches(0.44)) / 2, Inches(0.44), Inches(0.44), RED, shape=MSO_SHAPE.OVAL)
             self.text(sl, M + Inches(0.18), y + i * rh + (rh - Inches(0.15) - Inches(0.44)) / 2, Inches(0.44), Inches(0.44), str(i + 1), 14, True, WHITE, PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
-            self.text(sl, M + Inches(0.85), y + i * rh, Inches(7.4), rh - Inches(0.15), t, 16, False, WHITE, anchor=MSO_ANCHOR.MIDDLE)
+            self.text(sl, M + Inches(0.85), y + i * rh, Inches(7.4), rh - Inches(0.15), t, 16, False, fg, anchor=MSO_ANCHOR.MIDDLE)
         self.text(sl, M, H - Inches(0.55), Inches(9), Inches(0.3),
-                  'Generated from live RFAI Tracker data on ' + datetime.now().strftime('%d %b %Y, %H:%M'), 11, color=RGBColor(0x8F, 0x95, 0xA3))
+                  'Generated from live RFAI Tracker data on ' + datetime.now().strftime('%d %b %Y, %H:%M'), 11, color=MUTED if light else RGBColor(0xB0, 0xB5, 0xC0))
 
 
 def _cell(c, txt, bold, color, fill, align, size):
@@ -437,7 +481,7 @@ def _cell(c, txt, bold, color, fill, align, size):
     for edge in ('a:lnL', 'a:lnR', 'a:lnT', 'a:lnB'):
         ln = tcPr.makeelement(qn(edge), {'w': '9525' if edge == 'a:lnB' else '0'})
         if edge == 'a:lnB':
-            sf = ln.makeelement(qn('a:solidFill'), {}); sf.append(sf.makeelement(qn('a:srgbClr'), {'val': 'E6E8EE'})); ln.append(sf)
+            sf = ln.makeelement(qn('a:solidFill'), {}); sf.append(sf.makeelement(qn('a:srgbClr'), {'val': str(LINE)})); ln.append(sf)
         else:
             ln.append(ln.makeelement(qn('a:noFill'), {}))
         els.append(ln)
@@ -481,8 +525,31 @@ def _auto_insights(cats, ser, ct):
     return out
 
 
-def build_deck(path, title, slides):
+_LOCK = __import__('threading').Lock()
+
+
+def _set_theme(name):
+    global _BASE
+    g = globals()
+    keys = set().union(*[t.keys() for t in THEMES.values()])
+    if _BASE is None: _BASE = {k: g[k] for k in keys}
+    g.update(_BASE); g.update(THEMES.get(name) or {})
+
+
+def build_deck(path, title, slides, theme='airtel', images='none'):
+    with _LOCK:
+        _set_theme(theme if theme in THEMES else 'airtel')
+        try:
+            _build(path, title, slides, theme, images)
+        finally:
+            _set_theme('airtel')
+
+
+def _build(path, title, slides, theme, images):
     d = Deck(title)
+    if images and images != 'none':
+        from ppt_images import deck_images
+        d.images = deck_images(title, theme, images)
     slides = [dict(s) for s in (slides or [])][:40]
     if not slides or slides[0].get('kind') != 'title':
         slides.insert(0, {'kind': 'title', 'title': title})

@@ -209,7 +209,7 @@ class LocalBrain:
         return None, None
 
     # ── answering ──────────────────────────────────────────────────────────
-    def answer(self, text, user, last=None):
+    def answer(self, text, user, last=None, ppt=None):
         """Returns (answer_markdown, files, state_for_followups, suggestions)."""
         q = self.parse(text, last)
         if q.get('error'):
@@ -217,6 +217,8 @@ class LocalBrain:
         if q['help'] and not (q['filters'] or q['group_by'] or q['sr']):
             return HELP, [], last, ['Overall RFAI status', 'Circle-wise pending over 90 days', 'Make a PPT of RFAI status by circle']
         run = lambda name, a: self.ai._run_tool(name, a, user)
+        self.ppt = ppt or {}
+        self.length = self.ppt.get('length', 'standard')
         f = {k: v for k, v in q['filters'].items() if v}
         scope = self._scope(f, q.get('event'))
         files = []
@@ -334,7 +336,8 @@ class LocalBrain:
             trows = [list(r) for r in table]
             if two: trows.append(['Total'] + [int(sum(r[j] for r in table)) for j in range(1, len(cols))])
             elif not q['date_group']: trows.append(['Total', total, ''])
-            slides.append({'kind': 'table', 'title': what, 'subtitle': f'Number of SRs, {scope}', 'columns': cols, 'rows': trows})
+            if self.length != 'short':
+                slides.append({'kind': 'table', 'title': what, 'subtitle': f'Number of SRs, {scope}', 'columns': cols, 'rows': trows})
             srt = sorted(table, key=lambda r: r[-1] if two else r[1], reverse=True)
             nx = [f'Review {srt[0][0]} first: it has the most SRs ({_fmt(srt[0][-1] if two else srt[0][1])}).']
             if len(srt) > 1: nx.append('Compare ' + ', '.join(str(r[0]) for r in srt[1:3]) + ' against the leader and agree targets.')
@@ -469,14 +472,60 @@ class LocalBrain:
         if st.get('Rejected RFAI'): nxt.append('Follow up re-offers for rejected RFAIs.')
         nxt.append('Go through the oldest SRs in this deck site by site and set owners.')
         nxt.append('Track the weekly OnAir run-rate against plan.')
+        if self.length == 'detailed':
+            slides += self._deep_dive(f, ff, run)
         slides.append({'kind': 'closing', 'title': 'Next steps', 'subtitle': 'Suggested actions from this review', 'bullets': nxt})
+        if self.length == 'short':
+            keep = {'title', 'summary', 'closing'}
+            first_chart = next((x for x in slides if x['kind'] == 'chart' and x.get('chart_type') == 'stacked_column'), None) or \
+                next((x for x in slides if x['kind'] == 'chart'), None)
+            first_table = next((x for x in slides if x['kind'] == 'table' and 'Oldest' in x['title']), None)
+            slides = [x for x in slides if x['kind'] in keep or x is first_chart or x is first_table]
         for x in slides:
             if x['kind'] == 'chart' and 'notes' not in x:
                 from ppt_builder import _auto_insights
                 x['notes'] = x['title'] + '. ' + ' '.join(x.get('insights') or _auto_insights(x['categories'], x['series'], x['chart_type']))
         r = run('make_powerpoint', {'title': title, 'slides': slides})
-        return (f"Your PowerPoint is ready: **{len(slides)} slides** for SRs {scope}: executive summary, KPIs, status mix, "
-                f"circle-wise status, OnAir trend, ageing, oldest pending SRs and next steps, with speaker notes."), [r['_file']], state, ['Export this to Excel']
+        from ai_assistant import THEME_NAMES
+        o = self.ppt
+        n = sum(1 + (max(0, (len(x.get('rows') or []) - 1) // 12) if x['kind'] == 'table' else 0) for x in slides)
+        pics = {'ai': ', AI pictures', 'art': ', built-in artwork'}.get(o.get('images'), '')
+        if self.length == 'short':
+            covers = 'Covers the summary, pending by circle, oldest SRs and next steps.'
+        else:
+            covers = ('Covers the executive summary, KPIs, status mix, circle-wise status, OnAir trend, ageing, oldest pending SRs'
+                      + (', a deep dive by OEM, project and ageing per circle' if self.length == 'detailed' else '')
+                      + ' and next steps, with speaker notes.')
+        ans = (f"Your PowerPoint is ready: **{n} slides**, **{THEME_NAMES.get(o.get('theme', 'airtel'), 'Airtel Red')}** theme{pics}, "
+               f"for SRs {scope}. " + covers)
+        return ans, [r['_file']], state, ['Export this to Excel']
+
+    def _deep_dive(self, f, ff, run):
+        """Extra slides for a detailed deck."""
+        out = [{'kind': 'section', 'title': 'Deep dive', 'subtitle': 'Pending SRs by OEM, project and circle ageing', 'icon': 'chart'}]
+        for g, lab, ct in (('oem', 'OEM', 'bar'), ('project', 'project', 'column'), ('category', 'TOCO project', 'bar')):
+            a = run('aggregate', {'group_by': [g], 'filters': ff, 'top': 12})
+            rows = a.get('rows') or []
+            if len(rows) < 2: continue
+            out.append({'kind': 'chart', 'title': f"{rows[0][g]} has the most pending SRs by {lab} ({rows[0]['srs']:,})",
+                        'subtitle': f'Pending SRs by {lab}' + (' (top 12)' if a.get('groups', 0) > 12 else ''), 'chart_type': ct,
+                        'categories': [str(r[g]) for r in rows], 'series': [{'name': 'Pending SRs', 'values': [r['srs'] for r in rows]}]})
+        a = run('aggregate', {'group_by': ['circle', 'ageing_group'], 'filters': ff})
+        if a.get('rows'):
+            p = pd.DataFrame(a['rows']).pivot_table(index='circle', columns='ageing_group', values='srs', aggfunc='sum', fill_value=0)
+            p = p[[c for c in ('0-30', '30-60', '60-90', '>90') if c in p.columns]]
+            p = p.loc[p.sum(axis=1).sort_values(ascending=False).index]
+            if len(p) > 1 and len(p.columns) > 1:
+                top = p.head(15)
+                out.append({'kind': 'chart', 'title': 'Ageing of pending SRs by circle', 'subtitle': 'Days since final RFAI, PRI days excluded',
+                            'chart_type': 'stacked_column', 'categories': [str(i) for i in top.index],
+                            'series': [{'name': c + ' days', 'values': [int(v) for v in top[c]]} for c in top.columns]})
+            if len(p) > 1:
+                rows = [[i] + [int(v) for v in r] + [int(sum(r))] for i, r in zip(p.index, p.values)]
+                tr = p.sum(axis=0); rows.append(['Total'] + [int(v) for v in tr] + [int(tr.sum())])
+                out.append({'kind': 'table', 'title': 'Pending ageing by circle', 'subtitle': 'Number of pending SRs per ageing group',
+                            'columns': ['Circle'] + [c + ' days' for c in p.columns] + ['Total'], 'rows': rows})
+        return out
 
     @staticmethod
     def _title(f, base):

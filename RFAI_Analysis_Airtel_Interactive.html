@@ -4857,17 +4857,44 @@ async function aiOpen(){
 function aiClose(){ document.body.classList.remove('ai-open'); const p=document.getElementById('ai-panel'); p.classList.remove('open'); p.setAttribute('aria-hidden','true'); }
 function aiNew(){ _ai.conv=''; _aiHello(); document.getElementById('ai-q').focus(); }
 function aiAsk(q){ document.getElementById('ai-q').value=q; aiSend(); }
+const _AI_PPT_RX=/\b(ppt|pptx|power ?point|presentation|deck|slides?)\b/i;
+function _aiPptPrefs(){ let p=null; try{ p=JSON.parse(localStorage.getItem('rfai-ai-ppt')||'null'); }catch(e){} return Object.assign({length:'standard',theme:'airtel',images:'art'},p||{}); }
+function _aiPptCard(text){
+  const o=_aiPptPrefs();
+  const L=[['short','Short','5 slides'],['standard','Standard','about 10 slides'],['detailed','Detailed','about 15 slides']];
+  const T=[['airtel','Airtel Red','linear-gradient(135deg,#f21414,#96000c)','#fff','#e40000'],['midnight','Midnight','linear-gradient(135deg,#1c1f2a,#0b0c11)','#fff','#e40000'],
+           ['clean','Clean White','#ffffff','#16181f','#e40000'],['ocean','Ocean Blue','linear-gradient(135deg,#1478d4,#082f5e)','#fff','#3aa0ff']];
+  const I=[['ai','AI pictures','Made by a free AI service'],['art','Built-in art','Drawn here, works offline'],['none','No pictures','Charts and tables only']];
+  const seg=(k,arr)=>'<div class="ap-seg" data-k="'+k+'">'+arr.map(x=>'<button type="button" data-v="'+x[0]+'" class="'+(o[k]===x[0]?'on':'')+'"><b>'+x[1]+'</b><small>'+x[2]+'</small></button>').join('')+'</div>';
+  const th='<div class="ap-seg ap-th" data-k="theme">'+T.map(x=>'<button type="button" data-v="'+x[0]+'" class="'+(o.theme===x[0]?'on':'')+'"><span class="ap-sw" style="background:'+x[2]+'"><i style="background:'+x[4]+'"></i><em style="background:'+x[3]+'"></em><em style="background:'+x[3]+';width:40%"></em></span><b>'+x[1]+'</b></button>').join('')+'</div>';
+  const t=_aiAdd('a','<div class="ap"><p><b>Let\'s set up your PowerPoint.</b> Pick the options, then press Create.</p>'+
+    '<div class="ap-l">How many slides?</div>'+seg('length',L)+'<div class="ap-l">Theme</div>'+th+'<div class="ap-l">Pictures</div>'+seg('images',I)+
+    '<div class="ap-go"><button type="button" class="ap-create">Create PowerPoint</button></div></div>');
+  t.querySelectorAll('.ap-seg').forEach(g=>g.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+    g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); o[g.dataset.k]=b.dataset.v; }));
+  t.querySelector('.ap-create').onclick=()=>{
+    try{ localStorage.setItem('rfai-ai-ppt',JSON.stringify(o)); }catch(e){}
+    const lab={short:'5',standard:'~10',detailed:'~15'}[o.length]+' slides · '+{airtel:'Airtel Red',midnight:'Midnight',clean:'Clean White',ocean:'Ocean Blue'}[o.theme]+' · '+{ai:'AI pictures',art:'built-in art',none:'no pictures'}[o.images];
+    t.innerHTML='<div class="ap-done"><b>PowerPoint settings</b><span>'+_hmEsc(lab)+'</span></div>';
+    _aiPost(text,o);
+  };
+  const b=document.getElementById('ai-body'); b.scrollTop=b.scrollHeight;
+}
 async function aiSend(){
   const q=document.getElementById('ai-q'), text=q.value.trim(); if(!text||_ai.busy) return;
   const hello=document.querySelector('#ai-body .ai-hello'); if(hello) hello.remove();
   document.querySelectorAll('#ai-body .ai-fu').forEach(e=>e.remove());
   _aiAdd('u',_hmEsc(text)); q.value=''; q.style.height='auto';
+  if(_AI_PPT_RX.test(text)){ _aiPptCard(text); return; }      // ask how the deck should look first
+  _aiPost(text,null);
+}
+async function _aiPost(text,ppt){
   _ai.busy=true; document.getElementById('ai-go').disabled=true;
-  const t=_aiAdd('a','<div class="ai-typing"><em>Thinking</em><i></i><i></i><i></i></div>');
+  const t=_aiAdd('a','<div class="ai-typing"><em>'+(ppt?'Building your slides':'Thinking')+'</em><i></i><i></i><i></i></div>');
   const av=t.parentNode.querySelector('.robo'); if(av) av.classList.add('think');
   let sug=[];
   try{
-    const r=await fetch(_B+'/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conv:_ai.conv,message:text})});
+    const r=await fetch(_B+'/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conv:_ai.conv,message:text,ppt:ppt||undefined})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok){ t.classList.add('err'); t.innerHTML=_hmEsc(j.error||('Error '+r.status)); }
     else{
@@ -14560,6 +14587,22 @@ body.ai-open #ai-fab{display:none}
 .ai-box button:hover{transform:scale(1.05)}
 .ai-box button:disabled{opacity:.5;cursor:wait;transform:none}
 .ai-box button svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.ap p{margin:0 0 8px}
+.ap-l{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#b08a90;margin:10px 0 6px}
+.ap-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.ap-seg button{border:1.5px solid #efe2e4;background:#fff;border-radius:12px;padding:8px 6px;cursor:pointer;font:inherit;text-align:center;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:2px}
+.ai-m.a .ap-seg button b{font-size:12.5px;color:#16181f}.ap-seg button small{font-size:10.5px;color:#8a7075;line-height:1.25}
+.ap-seg button:hover{border-color:#e9b9be}
+.ap-seg button.on{border-color:#e40000;background:#fff4f5;box-shadow:0 0 0 3px rgba(228,0,0,.1)}
+.ap-th{grid-template-columns:repeat(4,1fr)}
+.ap-sw{display:block;width:100%;height:40px;border-radius:7px;border:1px solid #e6e8ee;position:relative;overflow:hidden;margin-bottom:3px}
+.ap-sw i{position:absolute;right:6px;top:6px;width:12px;height:12px;border-radius:50%}
+.ap-sw em{position:absolute;left:6px;top:9px;height:4px;width:60%;border-radius:3px;opacity:.9}
+.ap-sw em+em{top:18px;opacity:.55}
+.ap-go{margin-top:12px}
+.ap-create{width:100%;border:none;border-radius:12px;padding:11px;font:inherit;font-weight:800;font-size:13.5px;color:#fff;cursor:pointer;background:linear-gradient(135deg,#ff2a2a,#c4000f);box-shadow:0 8px 18px -10px rgba(228,0,0,.8)}
+.ap-create:hover{filter:brightness(1.05)}
+.ap-done{display:flex;flex-direction:column;gap:2px}.ai-m.a .ap-done b{font-size:12px;color:#8a7075}.ap-done span{font-weight:700;color:#16181f}
 .ai-foot{text-align:center;font-size:10.5px;color:#b08a90;margin-top:6px}
 @media(max-width:700px){
   #ai-fab{right:14px;bottom:calc(78px + env(safe-area-inset-bottom));padding:6px}

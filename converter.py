@@ -2570,7 +2570,8 @@ async def ai_chat(request:Request):
     if not msg: return JSONResponse({"error":"Type a question."},status_code=400)
     user=(request.state.user or ('admin',''))[0]
     try:
-        conv,answer,files,sug=await asyncio.to_thread(ai.chat,user,str(d.get('conv') or ''),msg)
+        ppt=d.get('ppt') if isinstance(d.get('ppt'),dict) else None
+        conv,answer,files,sug=await asyncio.to_thread(ai.chat,user,str(d.get('conv') or ''),msg,ppt)
     except Exception as e:
         log.error(f"  AI chat failed: {e}")
         return JSONResponse({"error":f"The assistant could not answer: {str(e)[:300]}"},status_code=502)
