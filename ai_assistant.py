@@ -4,7 +4,12 @@ RFAI AI assistant — answers questions about the loaded RFAI data and builds fi
 
 The model never sees the raw table: it calls the tools below, which run on this
 server against the in-memory data, and gets back only the rows/aggregates it asked for.
-Needs ANTHROPIC_API_KEY in the environment.
+Engines, picked from the environment (first one set wins):
+  ANTHROPIC_API_KEY  -> Claude (paid)
+  GEMINI_API_KEY     -> Google Gemini free tier (no card needed)
+  GROQ_API_KEY       -> Groq free tier (no card needed)
+  none               -> built-in rules engine (ai_local.py): free, offline, data never leaves the server
+If a free engine is over its limit or fails, the answer falls back to the built-in engine.
 """
 import os, re, json, uuid, time, threading
 from datetime import date, datetime
@@ -14,6 +19,10 @@ import numpy as np
 import pandas as pd
 
 MODEL = os.environ.get('AI_MODEL', 'claude-opus-5-5')
+FREE_ENGINES = {   # OpenAI-compatible chat endpoints with free tiers
+    'gemini': ('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', 'gemini-flash-latest', 'Gemini'),
+    'groq': ('https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile', 'Groq'),
+}
 MAX_TOOL_ROUNDS = 12
 _conversations = {}            # conv_id -> {"user":..., "messages":[...], "t":...}
 _conv_lock = threading.Lock()
@@ -129,6 +138,24 @@ def _tools():
     ]
 
 
+def _loose(schema):
+    """Schema for OpenAI-compatible engines: drop limits some providers reject, give every array its items."""
+    if isinstance(schema, dict):
+        out = {k: _loose(v) for k, v in schema.items() if k not in ('maxItems', 'maximum')}
+        if out.get('type') == 'array' and not out.get('items'): out['items'] = {"type": "string"}
+        if out.get('type') == 'object' and 'properties' in out and not out['properties']: out.pop('properties')
+        return out
+    if isinstance(schema, list): return [_loose(x) for x in schema]
+    return schema
+
+
+def _num(v):
+    if isinstance(v, str) and re.fullmatch(r'-?\d[\d,]*(\.\d+)?', v.strip()):
+        try: return float(v.replace(',', '')) if '.' in v else int(v.replace(',', ''))
+        except ValueError: return v
+    return v
+
+
 ST_COL = {'onair': '#10B981', 'onair pending': '#F59E0B', 'pending': '#F59E0B', 'open pri': '#3B82F6',
           'rejected rfai': '#EF4444', 'rejected': '#EF4444', 'rfai pending': '#94A3B8'}
 def _col(name, i, pal):
@@ -146,19 +173,88 @@ class Assistant:
 
     # ── public ──────────────────────────────────────────────────────────────
     def enabled(self):
-        return bool(os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN'))
+        return True
+
+    def engine(self):
+        if os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN'): return 'claude'
+        if os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'): return 'gemini'
+        if os.environ.get('GROQ_API_KEY'): return 'groq'
+        return 'builtin'
+
+    def engine_label(self):
+        return {'claude': 'Claude AI', 'gemini': 'Gemini AI · free', 'groq': 'Groq AI · free'}.get(self.engine(), 'Built-in · free & offline')
 
     def chat(self, user, conv_id, text):
-        import anthropic
-        if self._client is None:
-            self._client = anthropic.Anthropic(max_retries=3)
+        """Returns (conv_id, answer_markdown, files, suggestions)."""
         with _conv_lock:
             self._gc()
             conv = _conversations.get(conv_id) if conv_id else None
             if not conv or conv['user'] != user:
-                conv_id = uuid.uuid4().hex; conv = {'user': user, 'messages': [], 't': time.time()}
+                conv_id = uuid.uuid4().hex; conv = {'user': user, 'messages': [], 'omsgs': [], 'last': None, 't': time.time()}
                 _conversations[conv_id] = conv
         conv['t'] = time.time()
+        eng = self.engine()
+        if eng == 'builtin':
+            return (conv_id,) + self._local(conv, text, user)
+        try:
+            if eng == 'claude':
+                ans, files = self._chat_claude(conv, text, user)
+            else:
+                ans, files = self._chat_openai(conv, text, user, eng)
+            return conv_id, ans, files, []
+        except Exception as e:
+            if eng == 'claude': raise
+            ans, files, sug = self._local(conv, text, user)
+            why = 'is over its free limit right now' if '429' in str(e) else 'did not answer'
+            return conv_id, f"_{FREE_ENGINES[eng][2]} {why}, so the built-in assistant answered._\n\n" + ans, files, sug
+
+    def _local(self, conv, text, user):
+        from ai_local import LocalBrain
+        ans, files, state, sug = LocalBrain(self).answer(text, user, conv.get('last'))
+        if state is not None: conv['last'] = state
+        return ans, files, sug
+
+    def _chat_openai(self, conv, text, user, eng):
+        """Tool loop against an OpenAI-compatible endpoint (Gemini / Groq free tiers)."""
+        import requests
+        url, model, _ = FREE_ENGINES[eng]
+        key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')) if eng == 'gemini' else os.environ.get('GROQ_API_KEY')
+        model = os.environ.get('AI_FREE_MODEL') or model
+        tools = [{"type": "function", "function": {"name": t['name'], "description": t['description'],
+                  **({"parameters": _loose(t['input_schema'])} if t['input_schema'].get('properties') else {})}} for t in _tools()]
+        msgs = conv['omsgs']; start = len(msgs)
+        msgs.append({"role": "user", "content": text}); made = []
+        sysmsg = {"role": "system", "content": SYSTEM.replace('{today}', date.today().strftime('%d %b %Y'))}
+        try:
+            for _ in range(MAX_TOOL_ROUNDS):
+                r = requests.post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                                  json={"model": model, "messages": [sysmsg] + msgs[-40:], "tools": tools, "temperature": 0.2}, timeout=120)
+                if r.status_code >= 400:
+                    raise RuntimeError(f"{r.status_code}: {r.text[:300]}")
+                m = r.json()['choices'][0]['message']
+                calls = m.get('tool_calls') or []
+                msgs.append({"role": "assistant", "content": m.get('content') or '', **({"tool_calls": calls} if calls else {})})
+                if not calls:
+                    return (m.get('content') or 'Done.').strip(), made
+                for c in calls:
+                    try:
+                        args = json.loads(c['function'].get('arguments') or '{}') or {}
+                        out = self._run_tool(c['function']['name'], args, user)
+                        if isinstance(out, dict) and out.get('_file'):
+                            made.append(out['_file']); out = {k: v for k, v in out.items() if k != '_file'}
+                        content = json.dumps(out, default=str)[:30000]
+                    except Exception as e:
+                        content = f"Error: {e}"
+                    msgs.append({"role": "tool", "tool_call_id": c.get('id', ''), "name": c['function']['name'], "content": content})
+            return "That took too many steps. Try a more specific question.", made
+        except Exception:
+            del msgs[start:]   # keep the history valid
+            raise
+
+    def _chat_claude(self, conv, text, user):
+        import anthropic
+        if self._client is None:
+            self._client = anthropic.Anthropic(max_retries=3)
         msgs = conv['messages']; msgs.append({"role": "user", "content": text})
         made = []; tools = _tools()
         system = [{"type": "text", "text": SYSTEM.replace('{today}', date.today().strftime('%d %b %Y')),
@@ -171,11 +267,11 @@ class Assistant:
             )
             if resp.stop_reason == "refusal":
                 msgs.pop()   # keep history valid for the next question
-                return conv_id, "Sorry, I can't help with that request.", made
+                return "Sorry, I can't help with that request.", made
             msgs.append({"role": "assistant", "content": resp.content})
             if resp.stop_reason != "tool_use":
                 answer = "\n".join(b.text for b in resp.content if b.type == "text").strip()
-                return conv_id, answer or "Done.", made
+                return answer or "Done.", made
             results = []
             for b in resp.content:
                 if b.type != "tool_use": continue
@@ -188,7 +284,7 @@ class Assistant:
                 except Exception as e:
                     results.append({"type": "tool_result", "tool_use_id": b.id, "content": f"Error: {e}", "is_error": True})
             msgs.append({"role": "user", "content": results})
-        return conv_id, "That took too many steps. Try a more specific question.", made
+        return "That took too many steps. Try a more specific question.", made
 
     def file(self, file_id, user):
         f = self.files.get(file_id)
@@ -320,7 +416,7 @@ class Assistant:
             while nm in used: nm = nm[:28] + str(len(used))
             used.add(nm)
             ws = wb.add_worksheet(nm); ws.hide_gridlines(2)
-            cols = sh['columns']; rows = sh['rows']
+            cols = sh['columns']; rows = [[_num(v) for v in r] for r in sh['rows']]
             ws.set_row(0, 30); ws.merge_range(0, 0, 0, max(1, len(cols) - 1), '  ' + title + (' — ' + sh['name'] if sh.get('name') else ''), ban)
             ws.write_row(2, 0, cols, hdr); ws.set_row(2, 28)
             for i, r in enumerate(rows):
