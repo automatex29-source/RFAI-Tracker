@@ -555,28 +555,123 @@ class Assistant:
         return {"type": "slides", "theme": theme, "slides": out, "pics": pics}
 
     def _png(self, path, a):
+        """Chart picture in the app's AI style: gradient rounded bars, highlighted leader, glow line with shaded area, donut."""
         import matplotlib; matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        from matplotlib.patches import FancyBboxPatch
+        from matplotlib.colors import LinearSegmentedColormap, to_rgb
         pal = ['#E40000', '#10B981', '#F59E0B', '#3B82F6', '#94A3B8', '#A855F7']
         cats = [str(c) for c in a['categories']]; ser = a['series']; ct = a['chart_type']
-        fig, ax = plt.subplots(figsize=(11, 5.5), dpi=150)
+        vals = [[float(_num(t) or 0) if not isinstance(t, (int, float)) else float(t) for t in s_['values']][:len(cats)] for s_ in ser]
+        INK, MUT, GRID = '#16181F', '#8A8F9A', '#EEF0F4'
+        plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 11})
+        fig = plt.figure(figsize=(12, 6.6), dpi=160, facecolor='white')
+        ax = fig.add_axes([0.07, 0.13, 0.9, 0.62])
+
+        def shade(hex_, k):
+            r, g, b = to_rgb(hex_)
+            return tuple(min(1, c + (1 - c) * k) if k > 0 else c * (1 + k) for c in (r, g, b))
+
+        def grad_patch(x, y, w, h, color, horizontal=False, glow=False):
+            if w <= 0 or h <= 0: return
+            r = min(w, h) * 0.18 if not horizontal else min(w, h) * 0.18
+            pt = FancyBboxPatch((x, y), w, h, boxstyle=f'round,pad=0,rounding_size={r}', linewidth=0, facecolor='none', mutation_aspect=1)
+            ax.add_patch(pt)
+            cm = LinearSegmentedColormap.from_list('g', [shade(color, -0.12), shade(color, 0.32)])
+            img = ax.imshow(np.linspace(0, 1, 64).reshape(1, -1) if horizontal else np.linspace(0, 1, 64).reshape(-1, 1),
+                            cmap=cm, extent=(x, x + w, y, y + h), origin='lower', aspect='auto', zorder=3)
+            img.set_clip_path(pt)
+            if glow and not horizontal:
+                for k, al in ((1.06, .10), (1.12, .05)):
+                    ax.add_patch(FancyBboxPatch((x - w * (k - 1) / 2, y), w * k, h * (1 + (k - 1) / 3), boxstyle=f'round,pad=0,rounding_size={r}',
+                                                linewidth=0, facecolor=color, alpha=al, zorder=2))
+
+        total = sum(sum(v) for v in vals) or 1
         if ct == 'pie':
-            ax.pie(ser[0]['values'], labels=cats, autopct='%1.0f%%', colors=[_col(c, i, pal) for i, c in enumerate(cats)], startangle=90, wedgeprops={'width': 0.45, 'edgecolor': 'white'})
+            ax.set_position([0.05, 0.08, 0.6, 0.7])
+            v = vals[0]; cols = [_col(c, i, pal) for i, c in enumerate(cats)]
+            w, _ = ax.pie(v, colors=cols, startangle=90, counterclock=False, wedgeprops={'width': 0.36, 'edgecolor': 'white', 'linewidth': 3})
+            for wd, x in zip(w, v):
+                if x / total > .04:
+                    ang = np.deg2rad((wd.theta1 + wd.theta2) / 2)
+                    ax.text(0.82 * np.cos(ang), 0.82 * np.sin(ang), f'{x / total:.0%}', ha='center', va='center', color='white', fontsize=13, fontweight='bold')
+            ax.text(0, 0.06, f'{int(total):,}', ha='center', va='center', fontsize=30, fontweight='bold', color=INK)
+            ax.text(0, -0.16, 'TOTAL SRS', ha='center', va='center', fontsize=10, fontweight='bold', color=MUT)
+            ax.set_aspect('equal')
+            lx = fig.add_axes([0.66, 0.15, 0.3, 0.55]); lx.axis('off')
+            for i, (c, x) in enumerate(sorted(zip(cats, v), key=lambda p: -p[1])[:10]):
+                y = 0.95 - i * 0.1
+                lx.add_patch(FancyBboxPatch((0, y - 0.03), 0.05, 0.06, boxstyle='round,pad=0,rounding_size=0.01', color=_col(c, cats.index(c), pal), transform=lx.transAxes))
+                lx.text(0.09, y, c, va='center', fontsize=12, color=INK, transform=lx.transAxes)
+                lx.text(0.98, y, f'{int(x):,}  ·  {x / total:.0%}', va='center', ha='right', fontsize=12, color=MUT, fontweight='bold', transform=lx.transAxes)
         else:
-            x = np.arange(len(cats)); n = max(1, len(ser)); bw = 0.8 / n; bottom = np.zeros(len(cats))
-            for i, s in enumerate(ser):
-                v = np.array([float(t or 0) for t in s['values']])
-                if ct == 'line': ax.plot(cats, v, marker='o', color=_col(s['name'], i, pal), label=s['name'], linewidth=2.2)
-                elif ct == 'stacked_column': ax.bar(cats, v, bottom=bottom, color=_col(s['name'], i, pal), label=s['name']); bottom += v
-                elif ct == 'bar': ax.barh(x + i * bw, v, bw, color=_col(s['name'], i, pal), label=s['name'])
+            n = len(cats); multi = len(vals) > 1
+            stacked = ct == 'stacked_column'; horiz = ct == 'bar'; line = ct == 'line'
+            top = int(np.argmax(vals[0])) if vals and vals[0] else 0
+            mx = max([sum(col) for col in zip(*vals)] if stacked else [max(v) for v in vals] + [1]) * 1.15
+            for sp in ax.spines.values(): sp.set_visible(False)
+            ax.tick_params(length=0, colors=MUT)
+            if line:
+                xs = np.arange(n)
+                for si, v in enumerate(vals):
+                    c = _col(ser[si]['name'], si, pal) if multi else '#E40000'
+                    for lw, al in ((14, .05), (9, .08), (5, .15)): ax.plot(xs, v, color=c, linewidth=lw, alpha=al, solid_capstyle='round', zorder=2)
+                    ax.plot(xs, v, color=c, linewidth=3.2, zorder=4, solid_capstyle='round')
+                    if not multi:
+                        poly = ax.fill_between(xs, v, 0, color='none')
+                        grad = ax.imshow(np.linspace(0, 1, 64).reshape(-1, 1), cmap=LinearSegmentedColormap.from_list('a', [(1, 1, 1, 0), (*to_rgb(c), .35)]),
+                                         extent=(xs[0], xs[-1], 0, max(v) or 1), origin='lower', aspect='auto', zorder=1)
+                        grad.set_clip_path(poly.get_paths()[0], transform=ax.transData)
+                    ax.scatter(xs, v, s=[140 if (i == top and not multi) else 60 for i in range(n)], color='white', edgecolor=c, linewidth=2.6, zorder=5)
+                    if n <= 16:
+                        for i, y in enumerate(v):
+                            ax.annotate(f'{y:,.0f}', (i, y), textcoords='offset points', xytext=(0, 11), ha='center', fontsize=10,
+                                        fontweight='bold', color='#C4000F' if (i == top and not multi) else '#4B505C', zorder=6)
+                ax.set_xticks(xs, cats); ax.set_xlim(-0.5, n - 0.5); ax.set_ylim(0, mx)
+                ax.grid(axis='y', color=GRID, linewidth=1)
+            else:
+                k = 1 if stacked else len(vals); slot = 1.0; bw = 0.72 / k
+                acc = np.zeros(n)
+                for si, v in enumerate(vals):
+                    for i, y in enumerate(v):
+                        hi = not multi and i == top and n > 1
+                        c = _col(ser[si]['name'], si, pal) if multi else ('#E40000' if hi or n == 1 else '#B9C0CC')
+                        pos = i - 0.36 + (0 if stacked else si * bw)
+                        if horiz:
+                            grad_patch(acc[i] if stacked else 0, n - 1 - i - 0.36 + (0 if stacked else si * bw), y, bw, c, True, hi)
+                            if not stacked: ax.text(y + mx * .01, n - 1 - i - 0.36 + si * bw + bw / 2, f'{y:,.0f}', va='center', fontsize=10, fontweight='bold', color='#C4000F' if hi else INK, zorder=6)
+                        else:
+                            grad_patch(pos, acc[i] if stacked else 0, bw, y, c, False, hi)
+                            if not stacked and n <= 24: ax.text(pos + bw / 2, y + mx * .015, f'{y:,.0f}', ha='center', fontsize=10, fontweight='bold', color='#C4000F' if hi else INK, zorder=6)
+                            if stacked and y > mx * .05: ax.text(pos + bw / 2, acc[i] + y / 2, f'{y:,.0f}', ha='center', va='center', fontsize=9, fontweight='bold', color='white', zorder=6)
+                    if stacked: acc += np.array(v)
+                if horiz:
+                    ax.set_ylim(-0.6, n - 0.4); ax.set_xlim(0, mx); ax.set_yticks(range(n), list(reversed(cats)))
+                    ax.grid(axis='x', color=GRID, linewidth=1)
                 else:
-                    b = ax.bar(x + i * bw - 0.4 + bw / 2, v, bw, color=_col(s['name'], i, pal), label=s['name']); ax.bar_label(b, fmt='%g', fontsize=8)
-            if ct == 'bar': ax.set_yticks(x + bw * (n - 1) / 2, cats)
-            elif ct == 'column': ax.set_xticks(x, cats)
-            for sp in ('top', 'right'): ax.spines[sp].set_visible(False)
-            ax.grid(axis='y' if ct != 'bar' else 'x', alpha=.25)
-            if n > 1: ax.legend(frameon=False)
-            plt.setp(ax.get_xticklabels(), rotation=30 if len(cats) > 8 else 0, ha='right' if len(cats) > 8 else 'center')
-        ax.set_title(a['title'], fontsize=14, fontweight='bold', loc='left')
-        fig.text(0.01, 0.01, 'airtel · RFAI Tracker', color='#E40000', fontsize=9, fontweight='bold')
-        fig.tight_layout(); fig.savefig(path); plt.close(fig)
+                    ax.set_xlim(-0.6, n - 0.4); ax.set_ylim(0, mx); ax.set_xticks(range(n), cats)
+                    ax.grid(axis='y', color=GRID, linewidth=1)
+            ax.set_axisbelow(True)
+            ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f'{x:,.0f}')) if not horiz else \
+                ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, _: f'{x:,.0f}'))
+            plt.setp(ax.get_xticklabels(), rotation=30 if n > 10 and not horiz else 0, ha='right' if n > 10 and not horiz else 'center', color='#4B505C')
+            plt.setp(ax.get_yticklabels(), color='#4B505C' if horiz else MUT)
+            if multi:
+                for si, s_ in enumerate(ser):
+                    fig.text(0.07 + si * 0.14, 0.785, '●  ' + str(s_['name']), color=_col(s_['name'], si, pal), fontsize=11, fontweight='bold')
+        # header: title, an insight line and a small AI badge
+        fig.text(0.07, 0.93, a['title'], fontsize=20, fontweight='bold', color=INK)
+        v0 = [sum(c) for c in zip(*vals)] if ct == 'stacked_column' and vals else (vals[0] if vals else [])
+        if v0 and ct != 'line':
+            i = int(np.argmax(v0)); ins = f'✦  {cats[i]} leads with {v0[i]:,.0f} ({v0[i] / (sum(v0) or 1):.0%} of total)'
+        elif v0:
+            i = int(np.argmax(v0)); ins = f'✦  Peak in {cats[i]} at {v0[i]:,.0f} · {sum(v0):,.0f} in total'
+        else: ins = ''
+        fig.text(0.07, 0.875, ins, fontsize=12, color='#6B4FD8', fontweight='bold')
+        fig.text(0.97, 0.935, 'AI INSIGHT', fontsize=9, fontweight='bold', color='white', ha='right',
+                 bbox=dict(boxstyle='round,pad=0.45,rounding_size=0.8', fc='#E40000', ec='none'))
+        fig.text(0.07, 0.03, 'RFAI Tracker  ·  ' + datetime.now().strftime('%d %b %Y, %H:%M'), fontsize=9, color=MUT)
+        lp = Path(__file__).with_name('assets') / 'airtel_red.png'
+        if lp.exists():
+            lim = plt.imread(str(lp)); la = fig.add_axes([0.875, 0.015, 0.095, 0.05]); la.imshow(lim); la.axis('off')
+        fig.savefig(path, facecolor='white'); plt.close(fig)
