@@ -3,6 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>/* AOP view: while on, every data request asks the server for SRs with RFAI from the AOP start date only */
+window._AOP=(function(){ try{ return localStorage.getItem('rfai-aop')==='1'; }catch(e){ return false; } })();
+if(window._AOP){
+  var _f0=window.fetch.bind(window);
+  window.fetch=function(u,o){ var s=typeof u==='string'?u:(u&&u.url)||'';
+    if(s.indexOf('/api/')>=0){ o=Object.assign({},o||{}); var h=new Headers(o.headers||{}); h.set('X-RFAI-View','aop'); o.headers=h; }
+    return _f0(u,o); };
+  document.documentElement.classList.add('aop-on');
+}
+document.addEventListener('DOMContentLoaded',function(){ document.querySelectorAll('.mj-aop').forEach(function(b){ b.setAttribute('aria-pressed',window._AOP?'true':'false'); }); });
+function aopToggle(){ try{ localStorage.setItem('rfai-aop',window._AOP?'0':'1'); }catch(e){} location.reload(); }
+</script>
 <script>/* app install info for phones only (computers don't offer installing) */
 if(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)){
   document.write('<link rel="manifest" href="/manifest.webmanifest">');
@@ -996,6 +1008,7 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
 </style>
 </head>
 <body>
+<div id="aop-bar" role="status"><i></i><b>AOP view</b><span>Only SRs with RFAI notice on or after 26 Mar 2026</span><button type="button" onclick="aopToggle()">Show all data</button></div>
 
 <header class="tbar">
   <div class="logo">
@@ -1321,6 +1334,7 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
         <p>How many SRs have reached each milestone. The ring shows the share of all SRs. Click a milestone to open those SRs.</p></div>
       <div class="mj-right">
         <span class="mj-date" id="mj-date" title="Range of RFAI notice dates in the data"></span>
+        <button type="button" class="mj-aop" onclick="aopToggle()" title="AOP view: only SRs with RFAI notice on or after 26 Mar 2026" aria-pressed="false"><i></i><b>AOP</b><span>from 26 Mar 2026</span></button>
         <select id="cc-scope" class="mj-sel" onchange="ccSetScope(this.value)" aria-label="Circle scope"><option value="">All circles</option></select>
         <nav class="mj-nav" aria-label="Sections">
           <form class="mj-search" id="mj-search" onsubmit="hmSearch(event)" role="search">
@@ -9913,7 +9927,8 @@ async function _loadDashboard(){
         '<strong>'+totalRows.toLocaleString()+'</strong> rows with RFAI date',
         '<strong>'+scanned.toLocaleString()+'</strong> total rows scanned across '+fileStats.length+' file(s)',
       ];
-      if(noRfai>0) parts.push('<span style="color:#f97316"><strong>'+noRfai.toLocaleString()+'</strong> dropped — no RFAI date</span>');
+      if(window._AOP) parts.push('<span style="color:#c4000f"><strong>AOP view</strong>: only SRs with RFAI from 26 Mar 2026; other SRs are hidden, not dropped</span>');
+      else if(noRfai>0) parts.push('<span style="color:#f97316"><strong>'+noRfai.toLocaleString()+'</strong> dropped — no RFAI date</span>');
       if(dupRows>0) parts.push('<span style="color:#6366f1"><strong>'+dupRows.toLocaleString()+'</strong> duplicate SR rows merged</span>');
       if(rowsNoSr>0) parts.push('<span style="color:#0284c7"><strong>'+rowsNoSr.toLocaleString()+'</strong> rows with blank SR#</span>');
       ib.innerHTML='<div style="width:100%"><div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:12px">'+
@@ -14907,6 +14922,24 @@ body.ai-open #ai-fab{display:none}
   .ai-h{padding-top:calc(14px + env(safe-area-inset-top))}
   .ai-in{padding-bottom:calc(8px + env(safe-area-inset-bottom))}
 }
+/* AOP switch */
+.mj-aop{display:inline-flex;align-items:center;gap:7px;border:1.5px solid rgba(228,0,0,.35);border-radius:22px;padding:7px 14px 7px 10px;font:inherit;font-size:12.5px;background:#fff;color:#13161f;cursor:pointer;transition:all .15s}
+.mj-aop i{width:30px;height:17px;border-radius:9px;background:#d8d2d4;position:relative;flex:0 0 auto;transition:background .15s}
+.mj-aop i::after{content:'';position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s}
+.mj-aop b{font-weight:800;color:#c4000f}.mj-aop span{color:#5b4a4e}
+.mj-aop:hover{border-color:#e40000}
+.aop-on .mj-aop{background:linear-gradient(135deg,#ff2a2a,#c4000f);border-color:transparent;color:#fff;box-shadow:0 8px 18px -10px rgba(228,0,0,.9)}
+.aop-on .mj-aop i{background:rgba(255,255,255,.35)}.aop-on .mj-aop i::after{left:15px}
+.aop-on .mj-aop b,.aop-on .mj-aop span{color:#fff}
+#aop-bar{display:none}
+.aop-on #aop-bar{display:flex;align-items:center;justify-content:center;gap:10px;position:sticky;top:0;z-index:950;padding:5px 12px;
+  background:linear-gradient(90deg,#b0000f,#ff2a2a,#b0000f);color:#fff;font-size:12.5px;white-space:nowrap}
+#aop-bar i{width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3);animation:aopPulse 1.6s infinite}
+@keyframes aopPulse{50%{box-shadow:0 0 0 6px rgba(255,255,255,0)}}
+#aop-bar span{opacity:.9;overflow:hidden;text-overflow:ellipsis}
+#aop-bar button{border:none;background:#fff;color:#c4000f;font:inherit;font-weight:800;font-size:11.5px;border-radius:999px;padding:3px 11px;cursor:pointer}
+body.ai-open #aop-bar{display:none}
+@media(max-width:700px){#aop-bar span{display:none}.mj-aop span{display:none}}
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}
 .cc-btn,.ccm-go,.mj-export,.mj-seg button.on,.mj-node .stp{color:#fff !important}

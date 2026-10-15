@@ -439,8 +439,26 @@ _dash_cache    = None
 _df_cache      = None
 _df_full_cache = None
 
+# ── AOP view: only SRs whose initial RFAI is on/after the AOP start date ──────
+# The browser sends "X-RFAI-View: aop" while the AOP switch is on; endpoints read the
+# data through _vf(), which returns the AOP slice for those requests.
+import contextvars
+AOP_START = pd.Timestamp(os.environ.get('AOP_START', '2026-03-26'))
+_view = contextvars.ContextVar('rfai_view', default='')
+_vf_cache = {}
+def _vf(df):
+    if df is None or _view.get() != 'aop': return df
+    key = (id(df), len(df))
+    hit = _vf_cache.get(key)
+    if hit is None:
+        d = pd.to_datetime(df['rfaiNotice'].astype(str), format='%d-%b-%Y', errors='coerce')
+        hit = df[d >= AOP_START]
+        while len(_vf_cache) >= 4: _vf_cache.pop(next(iter(_vf_cache)))
+        _vf_cache[key] = hit
+    return hit
+
 _df_cache_cols = ['circle','category','bPrj','toco','domain','oem',
-                  'exitMK','journeyMK','srStatus','delay','srNo','finalRfai','priDays']
+                  'exitMK','journeyMK','srStatus','delay','srNo','finalRfai','priDays','rfaiNotice']
 _CAT_COLS      = ['circle','category','bPrj','toco','domain','oem',
                   'srStatus','group','exitMK','journeyMK']
 
@@ -1322,6 +1340,12 @@ app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_
 from fastapi import Request
 from fastapi.responses import JSONResponse as _JR
 
+@app.middleware("http")
+async def _aop_view(request:Request, call_next):
+    tok=_view.set('aop' if request.headers.get('x-rfai-view')=='aop' else '')
+    try: return await call_next(request)
+    finally: _view.reset(tok)
+
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # password of the built-in "admin" user
 _ON_SERVER     = bool(os.environ.get('RENDER'))
 # Login is required whenever an admin password exists, and always on a server.
@@ -1710,7 +1734,7 @@ def summary():
     if not fs: return JSONResponse({"error":"No data"},status_code=404)
     cached=_df_cache is not None
     if cached:
-        df=_df_cache
+        df=_vf(_df_cache)
     else:
         parts=[]
         for f in fs:
@@ -1763,7 +1787,7 @@ def filter_data(
     page_size:int=Query(default=75)):
     cached=_df_full_cache is not None
     if cached:
-        df=_df_full_cache
+        df=_vf(_df_full_cache)
     else:
         fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
         if not fs: return JSONResponse({"error":"No data"},status_code=404)
@@ -1838,7 +1862,7 @@ def velocity(metric:str=Query(default='pri_open'), start:str=Query(default=''), 
              gran:str=Query(default='week')):
     """Per circle and period: how many SRs reached a milestone (or, for pri_stock,
     how many had a PRI open at the end of the period)."""
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return {"labels":[],"rows":[]}
     starts,ends,lab,gran=_periods(start,end,gran)
     circ=df['circle'].astype(str).to_numpy()
@@ -1869,7 +1893,7 @@ def velocity_detail(metric:str=Query(default='pri_open'), circle:str=Query(defau
                     sel_from:str=Query(default=''), sel_to:str=Query(default='')):
     """Daily series + running total over start..end (chart), and key facts for the
     selected period sel_from..sel_to (defaults to the whole range)."""
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return {}
     if circle: df=df[df['circle'].astype(str)==circle]
     today=pd.Timestamp(date.today())
@@ -1921,7 +1945,7 @@ def velocity_detail(metric:str=Query(default='pri_open'), circle:str=Query(defau
 def momentum(circle:str=Query(default=''), start:str=Query(default=''), end:str=Query(default=''),
              gran:str=Query(default='week')):
     """OnAir achieved, RFAI received and SRs pending, per day / week / month, for any date range."""
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return {"labels":[]}
     if circle: df=df[df['circle'].astype(str)==circle]
     today=pd.Timestamp(date.today())
@@ -1969,7 +1993,7 @@ def momentum(circle:str=Query(default=''), start:str=Query(default=''), end:str=
 def home_stats(circle:str=Query(default='')):
     """Milestone journey, recent movement, weekly momentum and circle scorecard
     for the Home page. ?circle=X scopes everything to one circle."""
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return {"total":0}
     all_circles=sorted(c for c in df['circle'].astype(str).unique() if c and c!='nan')
     if circle: df=df[df['circle'].astype(str)==circle]
@@ -2075,13 +2099,13 @@ def dashboard_data(
 
 def _dash_inner(circle,category,oem,toco,domain,status,month):
     has_filter=any([circle,category,oem,toco,domain,status,month])
-    if not has_filter and _dash_cache is not None: return _dash_cache
+    if not has_filter and _dash_cache is not None and _view.get()!='aop': return _dash_cache
     if _df_cache is None:
         fs=sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
         if not fs: return JSONResponse({"error":"No data"},status_code=404)
         _build_caches()
     if _df_cache is None: return JSONResponse({"error":"Cache unavailable"},status_code=503)
-    df=_df_cache
+    df=_vf(_df_cache)
     if circle:   df=df[df['circle'].isin(circle.split(','))]
     if category: df=df[df['category'].isin(category.split(','))]
     if oem:      df=df[df['oem'].isin(oem.split(','))]
@@ -2109,7 +2133,7 @@ def drill_data(
            'srStatus','delay','group','exitMK','rfaiNotice','finalRfai','onAir']
     if _df_full_cache is not None:
         avail=[c for c in DCOLS if c in _df_full_cache.columns]
-        df=_df_full_cache[avail].copy()
+        df=_vf(_df_full_cache)[avail].copy()
         if circle:   df=df[df['circle'].isin(circle.split(','))]
         if status:   df=df[df['srStatus'].isin(status.split(','))]
         if category: df=df[df['category'].isin(category.split(','))]
@@ -2151,7 +2175,7 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
             page:int=Query(default=1), size:int=Query(default=50)):
     """SR Explorer: the SRs behind any number clicked on Home or the Dashboard,
     with summaries (status mix, circles, ageing) and a sortable, paged list."""
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return {"total":0,"rows":[],"summary":{}}
     m=np.ones(len(df),bool)
     def col(c): return df[c].astype(str).to_numpy() if c in df.columns else np.full(len(df),'')
@@ -2528,7 +2552,7 @@ def export_xlsx(request:Request, background_tasks:BackgroundTasks, journey:int=Q
     """Formatted Excel: Summary (key numbers, charts, contents), the Journey Table
     (split over several sheets when needed) and Pending / Open PRI / Rejected / OnAir lists."""
     import tempfile
-    df=_df_full_cache
+    df=_vf(_df_full_cache)
     if df is None or not len(df): return JSONResponse({"error":"No data loaded"},status_code=404)
     p={k:v for k,v in request.query_params.items() if v}
     df=_xl_filter(df,p).reset_index(drop=True)
@@ -2553,7 +2577,8 @@ def _ai_get():
     global _ai
     if _ai is None:
         from ai_assistant import Assistant
-        _ai=Assistant(lambda:_df_full_cache,_xl_filter,build_export_xlsx,mk_sort_val,_cache_dir/'_ai_files')
+        _ai=Assistant(lambda:_vf(_df_full_cache),_xl_filter,build_export_xlsx,mk_sort_val,_cache_dir/'_ai_files')
+        _ai.view=lambda:_view.get()
     return _ai
 
 @app.get("/api/ai/status")

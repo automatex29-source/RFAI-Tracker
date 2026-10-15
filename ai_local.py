@@ -5,6 +5,7 @@ It reads the question with simple language rules (circle names, statuses, ageing
 "by circle", "PPT", "Excel", "chart" …), runs the same tools as the AI engines against the
 loaded data, and writes a short answer with a table. Nothing leaves the server.
 """
+import contextvars
 import re
 from datetime import date, timedelta
 
@@ -23,6 +24,7 @@ LABEL = {'circle': 'Circle', 'status': 'Status', 'oem': 'OEM', 'category': 'TOCO
          'exit_month': 'Month', 'rfai_month': 'RFAI month'}
 EVENT_LABEL = {'initial_rfai': 'RFAI offered', 'final_rfai': 'final RFAI', 'first_pri_start': 'PRI opened',
                'last_pri_close': 'PRI closed', 'onair': 'OnAir', 'rfai_rejection': 'RFAI rejected'}
+ALL_LABEL = contextvars.ContextVar('all_label', default='across all data')   # changes while the AOP view is on
 HELP = ("I'm running in **built-in mode** (free, works offline, your data stays on this server). "
         "I understand questions like:\n"
         "- *How many pending SRs in MH?*\n- *Circle-wise open PRI*\n- *PRIs opened last week by circle*\n"
@@ -218,6 +220,8 @@ class LocalBrain:
             return HELP, [], last, ['Overall RFAI status', 'Circle-wise pending over 90 days', 'Make a PPT of RFAI status by circle']
         run = lambda name, a: self.ai._run_tool(name, a, user)
         self.ppt = ppt or {}
+        view = getattr(self.ai, 'view', None)
+        ALL_LABEL.set('in the AOP view (RFAI from 26 Mar 2026)' if view and view() == 'aop' else 'across all data')
         self.length = self.ppt.get('length', 'standard')
         f = {k: v for k, v in q['filters'].items() if v}
         scope = self._scope(f, q.get('event'))
@@ -551,4 +555,4 @@ class LocalBrain:
             fm = lambda x: pd.Timestamp(x).strftime('%d %b %Y')
             p.append(f"with {EVENT_LABEL.get(f['date_field'], f['date_field'])} " + (f'on {fm(a)}' if a == z else f'from {fm(a)} to {fm(z)}'))
         out = ((s + ' ') if s else '') + ' '.join(p)
-        return out.strip() or 'across all data'
+        return out.strip() or ALL_LABEL.get()
