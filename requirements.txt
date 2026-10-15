@@ -11,3 +11,6 @@ python-calamine
 lxml
 xlsxwriter
 psycopg2-binary
+anthropic>=1.14
+python-pptx
+matplotlib

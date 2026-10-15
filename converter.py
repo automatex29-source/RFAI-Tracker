@@ -2513,6 +2513,44 @@ def export_xlsx(request:Request, background_tasks:BackgroundTasks, journey:int=Q
     name='RFAI_'+re.sub(r'[^A-Za-z0-9]+','_',title or 'Journey')[:40].strip('_')+'_'+datetime.now().strftime('%d%b%Y_%H%M')+'.xlsx'
     return FileResponse(path,filename=name,media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+# ── AI assistant (Claude) ────────────────────────────────────────────────────
+_ai=None
+def _ai_get():
+    global _ai
+    if _ai is None:
+        from ai_assistant import Assistant
+        _ai=Assistant(lambda:_df_full_cache,_xl_filter,build_export_xlsx,mk_sort_val,_cache_dir/'_ai_files')
+    return _ai
+
+@app.get("/api/ai/status")
+def ai_status():
+    try: on=_ai_get().enabled()
+    except Exception: on=False
+    return {"enabled":on}
+
+@app.post("/api/ai/chat")
+async def ai_chat(request:Request):
+    import asyncio
+    ai=_ai_get()
+    if not ai.enabled():
+        return JSONResponse({"error":"The AI assistant is not set up: add ANTHROPIC_API_KEY in Render → Environment."},status_code=503)
+    d=await request.json()
+    msg=str(d.get('message','')).strip()[:4000]
+    if not msg: return JSONResponse({"error":"Type a question."},status_code=400)
+    user=(request.state.user or ('admin',''))[0]
+    try:
+        conv,answer,files=await asyncio.to_thread(ai.chat,user,str(d.get('conv') or ''),msg)
+    except Exception as e:
+        log.error(f"  AI chat failed: {e}")
+        return JSONResponse({"error":f"The assistant could not answer: {str(e)[:300]}"},status_code=502)
+    return {"conv":conv,"answer":answer,"files":files}
+
+@app.get("/api/ai/file/{fid}")
+def ai_file(fid:str, request:Request):
+    f=_ai_get().file(fid,(request.state.user or ('admin',''))[0])
+    if not f: return JSONResponse({"error":"File not found or expired"},status_code=404)
+    return FileResponse(f['path'],filename=f['name'])
+
 @app.get("/")
 def root():
     if HTML_FILE.exists(): return FileResponse(str(HTML_FILE))

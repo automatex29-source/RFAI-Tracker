@@ -1442,7 +1442,25 @@ html[data-theme=dark]:not(.inv) .um-row .r.a,html[data-theme=light].inv .um-row 
       <button class="ccm-x" onclick="ccCloseModal()" aria-label="Close">✕</button></div>
     <div class="ccm-b" id="cc-modal-b"></div>
   </div>
-  <div id="sr-drawer-bg" onclick="srClose()"></div>
+  <!-- AI ASSISTANT -->
+<button id="ai-fab" onclick="aiOpen()" aria-label="Ask the AI assistant" title="Ask the AI assistant">
+  <svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span>Ask AI</span>
+</button>
+<aside id="ai-panel" role="dialog" aria-label="AI assistant" aria-hidden="true">
+  <div class="ai-h">
+    <div class="ai-hi"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg></div>
+    <div class="ai-ht"><b>RFAI Assistant</b><span>Answers from your live data · makes Excel, PPT, charts</span></div>
+    <button onclick="aiNew()" title="New chat" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button onclick="aiClose()" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="ai-body" id="ai-body"></div>
+  <form class="ai-in" onsubmit="event.preventDefault();aiSend()">
+    <textarea id="ai-q" rows="1" placeholder="Ask anything about RFAI, PRI, circles… or 'make a PPT of…'" aria-label="Your question"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();aiSend()}" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+    <button type="submit" id="ai-go" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7z"/></svg></button>
+  </form>
+</aside>
+<div id="sr-drawer-bg" onclick="srClose()"></div>
   <aside id="sr-drawer" role="dialog" aria-modal="true" aria-label="SR details">
     <div class="srd-h"><div class="t"><div class="srd-sr" id="srd-sr">—</div><div class="srd-site" id="srd-site"></div></div>
       <button class="srd-x" onclick="srClose()" aria-label="Close">✕</button></div>
@@ -4763,6 +4781,65 @@ function exploreExport(){
   [...p.keys()].forEach(k=>{ if(p.get(k)==='') p.delete(k); });
   downloadXlsx(p);
 }
+
+/* ── AI ASSISTANT ── */
+let _ai={conv:'',busy:false,started:false};
+function _aiMd(t){
+  const esc=x=>x.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const inl=x=>esc(x).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<i>$2</i>');
+  const L=t.split('\n'); let h='', i=0;
+  while(i<L.length){
+    const l=L[i];
+    if(/^\s*\|.*\|\s*$/.test(l)&&i+1<L.length&&/^\s*\|?\s*:?-{2,}/.test(L[i+1])){
+      const row=x=>x.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      let tb='<div class="tw"><table><thead><tr>'+row(l).map(c=>'<th>'+inl(c)+'</th>').join('')+'</tr></thead><tbody>'; i+=2;
+      while(i<L.length&&/^\s*\|.*\|\s*$/.test(L[i])){ tb+='<tr>'+row(L[i]).map(c=>'<td>'+inl(c)+'</td>').join('')+'</tr>'; i++; }
+      h+=tb+'</tbody></table></div>'; continue;
+    }
+    if(/^\s*[-*•]\s+/.test(l)){ h+='<ul>'; while(i<L.length&&/^\s*[-*•]\s+/.test(L[i])){ h+='<li>'+inl(L[i].replace(/^\s*[-*•]\s+/,''))+'</li>'; i++; } h+='</ul>'; continue; }
+    if(/^\s*\d+[.)]\s+/.test(l)){ h+='<ol>'; while(i<L.length&&/^\s*\d+[.)]\s+/.test(L[i])){ h+='<li>'+inl(L[i].replace(/^\s*\d+[.)]\s+/,''))+'</li>'; i++; } h+='</ol>'; continue; }
+    if(/^#{1,4}\s+/.test(l)){ h+='<h4>'+inl(l.replace(/^#+\s+/,''))+'</h4>'; i++; continue; }
+    if(l.trim()) h+='<p>'+inl(l)+'</p>'; i++;
+  }
+  return h;
+}
+function _aiAdd(cls,html){ const b=document.getElementById('ai-body'); const d=document.createElement('div'); d.className='ai-m '+cls; d.innerHTML=html; b.appendChild(d); b.scrollTop=b.scrollHeight; return d; }
+function _aiHello(){
+  const S=['Which circle has the most pending SRs over 90 days?','How many PRIs were opened last week, circle-wise?',
+    'Make a PowerPoint of the RFAI status by circle','Export MH pending SRs to Excel','Chart OnAir per month for DL'];
+  document.getElementById('ai-body').innerHTML='<div class="ai-hello"><svg viewBox="0 0 24 24" width="34" height="34" fill="#e40000"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.6L12 15l-1.8-4.4L5.5 9l4.7-1.4z"/></svg>'+
+    '<b>Ask me anything about your RFAI data</b>Numbers come straight from the loaded data. I can also build Excel files, PowerPoint decks and charts.'+
+    '<div class="ai-sugg">'+S.map(q=>'<button type="button" onclick="aiAsk(this.textContent)">'+_hmEsc(q)+'</button>').join('')+'</div></div>';
+}
+async function aiOpen(){
+  document.body.classList.add('ai-open'); const p=document.getElementById('ai-panel'); p.classList.add('open'); p.setAttribute('aria-hidden','false');
+  if(!_ai.started){ _ai.started=true; _aiHello();
+    try{ const s=await (await fetch(_B+'/api/ai/status')).json();
+      if(!s.enabled) _aiAdd('a err','The AI assistant is not switched on yet. An admin must add <b>ANTHROPIC_API_KEY</b> in Render → Environment.'); }catch(e){} }
+  setTimeout(()=>document.getElementById('ai-q').focus(),50);
+}
+function aiClose(){ document.body.classList.remove('ai-open'); const p=document.getElementById('ai-panel'); p.classList.remove('open'); p.setAttribute('aria-hidden','true'); }
+function aiNew(){ _ai.conv=''; _aiHello(); document.getElementById('ai-q').focus(); }
+function aiAsk(q){ document.getElementById('ai-q').value=q; aiSend(); }
+async function aiSend(){
+  const q=document.getElementById('ai-q'), text=q.value.trim(); if(!text||_ai.busy) return;
+  const hello=document.querySelector('#ai-body .ai-hello'); if(hello) hello.remove();
+  _aiAdd('u',_hmEsc(text)); q.value=''; q.style.height='auto';
+  _ai.busy=true; document.getElementById('ai-go').disabled=true;
+  const t=_aiAdd('a','<div class="ai-typing"><i></i><i></i><i></i></div>');
+  try{
+    const r=await fetch(_B+'/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conv:_ai.conv,message:text})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ t.classList.add('err'); t.innerHTML=_hmEsc(j.error||('Error '+r.status)); }
+    else{
+      _ai.conv=j.conv||'';
+      t.innerHTML=_aiMd(j.answer||'')+((j.files||[]).length?'<div class="ai-files">'+j.files.map(f=>'<a class="ai-file" href="'+_B+'/api/ai/file/'+encodeURIComponent(f.id)+'" download="'+_hmEsc(f.name)+'"><i class="'+_hmEsc(f.kind)+'">'+_hmEsc(f.kind.toUpperCase())+'</i>'+_hmEsc(f.name)+'</a>').join('')+'</div>':'');
+    }
+  }catch(e){ t.classList.add('err'); t.textContent='Could not reach the server.'; }
+  _ai.busy=false; document.getElementById('ai-go').disabled=false;
+  const b=document.getElementById('ai-body'); b.scrollTop=b.scrollHeight;
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('ai-panel').classList.contains('open')) aiClose(); });
 
 /* ── ACCOUNT: sign-in session, user menu, users, password ── */
 // any API call that says "please sign in" (session ended) goes back to the login page
@@ -14337,6 +14414,63 @@ html[data-theme=dark] .k3-p{color:color-mix(in srgb,var(--k) 70%,#fff)}
 #tablePanel .tfoot button,#tablePanel .tfoot .pg{border-radius:10px}
 @media(max-width:700px){#tablePanel .fbar,#tablePanel .twrap{margin:10px 8px 0}#tablePanel .tfoot{margin:0 8px 12px}}
 
+/* ── AI assistant ── */
+#ai-fab{position:fixed;right:22px;bottom:22px;z-index:960;display:flex;align-items:center;gap:8px;border:none;cursor:pointer;
+  padding:12px 18px 12px 14px;border-radius:999px;font:inherit;font-size:14px;font-weight:800;color:#fff;
+  background:linear-gradient(135deg,#ff2a2a,#c4000f);box-shadow:0 14px 30px -10px rgba(228,0,0,.65),inset 0 1px 0 rgba(255,255,255,.3);transition:transform .15s}
+#ai-fab:hover{transform:translateY(-2px)}
+#ai-fab svg{width:20px;height:20px;fill:#fff}
+body.ai-open #ai-fab{display:none}
+#ai-panel{position:fixed;right:18px;bottom:18px;top:84px;width:440px;max-width:calc(100vw - 24px);z-index:961;display:flex;flex-direction:column;
+  background:#fff;border:1px solid #f0d6d9;border-radius:20px;box-shadow:0 30px 70px -20px rgba(80,10,20,.45);
+  transform:translateY(20px) scale(.98);opacity:0;pointer-events:none;transition:all .18s}
+#ai-panel.open{transform:none;opacity:1;pointer-events:auto}
+.ai-h{display:flex;align-items:center;gap:10px;padding:12px 12px 12px 14px;border-bottom:1px solid #f3e4e6;background:linear-gradient(180deg,#fff,#fff6f6);border-radius:20px 20px 0 0}
+.ai-hi{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#ff2a2a,#c4000f);box-shadow:0 6px 14px -6px rgba(228,0,0,.7)}
+.ai-hi svg{width:18px;height:18px;fill:#fff}
+.ai-ht{flex:1;min-width:0}.ai-ht b{display:block;font-size:14.5px;color:#16181f}.ai-ht span{font-size:11.5px;color:#8a7075}
+.ai-h button{border:none;background:#f6eced;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ai-h button svg{width:16px;height:16px;fill:none;stroke:#5b4a4e;stroke-width:2.2;stroke-linecap:round}
+.ai-body{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;background:#fffbfb}
+.ai-m{max-width:92%;font-size:13.5px;line-height:1.55;color:#22252d;word-wrap:break-word}
+.ai-m.u{align-self:flex-end;background:linear-gradient(135deg,#ff2a2a,#d40000);color:#fff;padding:9px 13px;border-radius:16px 16px 4px 16px;white-space:pre-wrap}
+.ai-m.a{align-self:flex-start;background:#fff;border:1px solid #f0e2e4;padding:10px 13px;border-radius:16px 16px 16px 4px;box-shadow:0 2px 6px -4px rgba(120,20,30,.3)}
+.ai-m.a p{margin:0 0 6px}.ai-m.a p:last-child{margin:0}
+.ai-m.a ul,.ai-m.a ol{margin:4px 0 6px 18px}
+.ai-m.a h4{font-size:13.5px;margin:6px 0 4px}
+.ai-m.a code{background:#f6eced;padding:1px 5px;border-radius:5px;font-size:12px}
+.ai-m.a .tw{overflow:auto;margin:6px 0}
+.ai-m.a table{border-collapse:collapse;font-size:12px;width:100%}
+.ai-m.a th{background:#2b2f3a;color:#fff;text-align:left;padding:5px 8px;font-weight:700;white-space:nowrap}
+.ai-m.a td{border-bottom:1px solid #f3e4e6;padding:5px 8px;white-space:nowrap}
+.ai-m.a tr:nth-child(even) td{background:#fffafa}
+.ai-m.err{color:#b91c1c;background:#fff0f1;border-color:#ffd2d6}
+.ai-files{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.ai-file{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;border:1px solid #f0d6d9;background:#fff5f5;color:#9b000c;font-weight:700;font-size:12.5px;text-decoration:none}
+.ai-file:hover{background:#ffeaec}
+.ai-file i{font-style:normal;font-size:10px;font-weight:800;color:#fff;background:#e40000;border-radius:5px;padding:2px 5px}
+.ai-file i.xlsx{background:#107c41}.ai-file i.pptx{background:#c43e1c}.ai-file i.png{background:#3b82f6}
+.ai-hello{text-align:center;color:#5b4a4e;font-size:13px;padding:10px 6px}
+.ai-hello b{display:block;font-size:17px;color:#16181f;margin:6px 0 4px}
+.ai-sugg{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.ai-sugg button{text-align:left;border:1px solid #f0e2e4;background:#fff;border-radius:12px;padding:9px 12px;font:inherit;font-size:12.8px;color:#2c313c;cursor:pointer}
+.ai-sugg button:hover{border-color:#e9b9be;background:#fff6f6}
+.ai-typing{display:flex;gap:4px;padding:12px 14px}
+.ai-typing i{width:7px;height:7px;border-radius:50%;background:#e40000;opacity:.4;animation:aib 1s infinite}
+.ai-typing i:nth-child(2){animation-delay:.15s}.ai-typing i:nth-child(3){animation-delay:.3s}
+@keyframes aib{50%{opacity:1;transform:translateY(-3px)}}
+.ai-in{display:flex;gap:8px;align-items:flex-end;padding:10px;border-top:1px solid #f3e4e6;background:#fff;border-radius:0 0 20px 20px}
+.ai-in textarea{flex:1;resize:none;border:1.5px solid #ecdfe1;border-radius:14px;padding:10px 12px;font:inherit;font-size:14px;max-height:140px;outline:none}
+.ai-in textarea:focus{border-color:#e40000;box-shadow:0 0 0 3px rgba(228,0,0,.1)}
+.ai-in button{flex:0 0 42px;height:42px;border:none;border-radius:12px;cursor:pointer;background:linear-gradient(180deg,#f01818,#d40000);display:flex;align-items:center;justify-content:center}
+.ai-in button:disabled{opacity:.5;cursor:wait}
+.ai-in button svg{width:18px;height:18px;fill:#fff}
+@media(max-width:700px){
+  #ai-fab{right:14px;bottom:calc(78px + env(safe-area-inset-bottom));padding:12px}
+  #ai-fab span{display:none}
+  #ai-panel{right:0;left:0;top:0;bottom:0;width:auto;max-width:none;border-radius:0}
+  .ai-h,.ai-in{border-radius:0}
+}
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}
 .cc-btn,.ccm-go,.mj-export,.mj-seg button.on,.mj-node .stp{color:#fff !important}
