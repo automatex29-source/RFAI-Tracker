@@ -18,6 +18,20 @@ GROUP_WORDS = [  # (regex, group_by key)
 ]
 ENGLISH = {'up', 'ap', 'or', 'in', 'on', 'of', 'to', 'be', 'me', 'my', 'is', 'it', 'at', 'as', 'an', 'no', 'so', 'do', 'go',
            'we', 'us', 'all', 'and', 'the', 'for', 'per', 'pri', 'top', 'new', 'old', 'one', 'two', 'any'}
+# full names people type for circles -> possible circle codes in the data (first one present wins)
+CIRCLE_ALIASES = {
+    'delhi': ['DL', 'DEL', 'Delhi'], 'ncr': ['DL', 'DEL'], 'mumbai': ['MUM', 'MB', 'Mumbai'], 'bombay': ['MUM', 'MB'],
+    'maharashtra': ['MH', 'MAH', 'ROM'], 'karnataka': ['KA', 'KK', 'KAR'], 'bangalore': ['KA', 'KK'], 'bengaluru': ['KA', 'KK'],
+    'tamil nadu': ['TN', 'TNC'], 'tamilnadu': ['TN', 'TNC'], 'chennai': ['TN', 'CH', 'CHN'], 'kolkata': ['KOL', 'KO'],
+    'calcutta': ['KOL', 'KO'], 'west bengal': ['WB'], 'bengal': ['WB'], 'andhra': ['AP'], 'telangana': ['AP', 'TS'],
+    'kerala': ['KL', 'KER'], 'gujarat': ['GJ', 'GUJ'], 'rajasthan': ['RJ', 'RAJ'], 'punjab': ['PB', 'PUN'], 'haryana': ['HR', 'HAR'],
+    'madhya pradesh': ['MP', 'MPCG'], 'chhattisgarh': ['MP', 'MPCG', 'CG'], 'up east': ['UPE', 'UP(E)', 'UP EAST'],
+    'up west': ['UPW', 'UP(W)', 'UP WEST'], 'uttar pradesh': ['UPE', 'UPW', 'UP'], 'bihar': ['BH', 'BIH', 'BJ'],
+    'jharkhand': ['BH', 'BJ', 'JH'], 'odisha': ['OR', 'OD', 'ORI'], 'orissa': ['OR', 'OD', 'ORI'], 'assam': ['AS', 'ASM'],
+    'north east': ['NE', 'NESA'], 'jammu': ['JK', 'J&K'], 'kashmir': ['JK', 'J&K'], 'himachal': ['HP'],
+}
+STATUS_WORDS = [('on ?air pending|oa pending', 'OnAir Pending'), ('open pri|\\bpris?\\b', 'Open PRI'), ('reject', 'Rejected RFAI'),
+                ('rfai pending', 'RFAI Pending'), ('\\bpending\\b', 'pending'), ('\\bon ?air\\b|\\blive\\b', 'OnAir')]
 MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 LABEL = {'circle': 'Circle', 'status': 'Status', 'oem': 'OEM', 'category': 'TOCO project', 'project': 'Project',
          'toco': 'ToCo', 'partner': 'Partner', 'tsp': 'TSP', 'domain': 'Project type', 'ageing_group': 'Ageing',
@@ -62,7 +76,8 @@ class LocalBrain:
 
         # follow-ups: "make this a PPT", "same in excel"
         tt = re.sub(r'\bthis (week|month|year)\b', '', t)
-        followup = bool(re.search(r'\b(this|that|same|it|above|these|those)\b', tt)) and len(t.split()) <= 9
+        followup = bool(re.search(r'\b(this|that|same|it|above|these|those)\b', tt)) and len(t.split()) <= 9 and \
+            bool(re.search(r'\bppt|power ?point|presentation|deck|excel|export|download|sheet|chart|graph|table|same|again|these|those', tt))
         if followup and last:
             q.update({k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v) for k, v in last.items()})
             q['out'] = 'answer'
@@ -82,11 +97,16 @@ class LocalBrain:
             m = re.search(r'(?<![a-z0-9])' + re.escape(cl) + r'(?![a-z0-9])', t)
             if not m:
                 continue
-            if cl in ENGLISH or len(cl) <= 2:
+            if cl in ENGLISH:
                 if not re.search(r'(?<![A-Za-z0-9])' + re.escape(c.upper()) + r'(?![A-Za-z0-9])', text) and \
                    not re.search(r'circle\s+' + re.escape(cl) + r'\b|\b' + re.escape(cl) + r'\s+circle', t):
                     continue
             cs.append(c)
+        have = {c.upper(): c for c in ov['circles']}
+        for name, codes in CIRCLE_ALIASES.items():
+            if re.search(r'\b' + name + r'\b', t):
+                hit = next((have[c.upper()] for c in codes if c.upper() in have), None)
+                if hit and hit not in cs: cs.append(hit)
         if cs:
             f['circle'] = ','.join(cs)
         for key, src in (('oem', 'oems'), ('toco', 'tocos'), ('category', 'categories'), ('project', 'projects')):
@@ -97,11 +117,12 @@ class LocalBrain:
 
         # event + dates
         ev = None
-        if re.search(r'\bpris?\b|post.?rfai', t) and re.search(r'open(ed)?|raise|start|new', t) and not re.search(r'still open|open pri ', t):
-            ev = 'first_pri_start'
-        elif re.search(r'\bpris?\b', t) and re.search(r'clos|resolv|clear', t):
-            ev = 'last_pri_close'
         timeish = r'week|month|today|yesterday|last \d+ days|since|between|trend|per (day|month)|daily|monthly|over time'
+        when = bool(re.search(timeish, t))
+        if re.search(r'\bpris?\b|post.?rfai', t) and re.search(r'opened|raised|started|\bnew\b', t) and when:
+            ev = 'first_pri_start'
+        elif re.search(r'\bpris?\b', t) and re.search(r'clos|resolv|clear', t) and when:
+            ev = 'last_pri_close'
         if ev: pass
         elif re.search(r'reject', t) and re.search(timeish, t):
             ev = 'rfai_rejection'
@@ -123,17 +144,25 @@ class LocalBrain:
             st = []
             if re.search(r'on ?air pending|pending on ?air|oa pending', t): st.append('OnAir Pending')
             elif re.search(r'rfai pending', t): st.append('RFAI Pending')
+            elif re.search(r'open pri|\bpris?\b|post.?rfai', t): st.append('Open PRI')
             elif re.search(r'\bpending\b|not (yet )?on ?air|open sites|backlog', t): st.append('pending')
-            if re.search(r'open pri|\bpris?\b|post.?rfai', t) and 'pending' not in st: st.append('Open PRI')
             if re.search(r'reject', t): st.append('Rejected RFAI')
             if re.search(r'\bon ?air(ed)?\b|\blive\b|completed', t) and not st: st.append('OnAir')
             if st:
                 f['status'] = ','.join(st)
 
         # ageing
-        m = re.search(r'(?:over|above|more than|>|older than|beyond|greater than)\s*(\d+)', t)
-        if m:
-            n = int(m.group(1)); f['aging'] = '>90' if n >= 90 else ('>30' if n >= 30 else '>30')
+        m = re.search(r'(?:over|above|more than|>|older than|beyond|greater than|exceeding|crossed|crossing)\s*(\d+)\s*(days?|d\b)?', t)
+        m2 = re.search(r'(?:less than|under|below|<|within)\s*(\d+)\s*(days?|d\b)?', t)
+        dayish = bool(re.search(r'\bdays?\b|\bdelay|\bageing|\baging|\bold', t))
+        if m and (m.group(2) or dayish):
+            f['min_days'] = int(m.group(1))
+            if not f.get('status'): f['status'] = 'pending'
+        if m2 and (m2.group(2) or dayish):
+            f['max_days'] = int(m2.group(1))
+        if 'min_days' in f or 'max_days' in f: pass
+        elif re.search(r'\bstuck|\bdelayed|\bblocked|\bcritical|\bescalat', t):
+            f['min_days'] = 90; f.setdefault('status', 'pending')
         elif re.search(r'60\s*-\s*90', t): f['aging'] = '60-90'
         elif re.search(r'30\s*-\s*60', t): f['aging'] = '30-60'
         elif re.search(r'0\s*-\s*30', t): f['aging'] = '0-30'
@@ -168,6 +197,17 @@ class LocalBrain:
             if not ev and 'exit_month' not in gb: gb.append('exit_month')
         if 'exit_month' in gb and q['date_group']:
             gb.remove('exit_month')
+        nst = sum(1 for rx, _ in STATUS_WORDS if re.search(rx, t))
+        if len(cs) >= 2 and re.search(r'\bvs\.?\b|versus|\bcompare|\band\b|,', t) and 'circle' not in gb:
+            gb.insert(0, 'circle')
+        if re.search(r'\bvs\.?\b|versus|\bcompare|against', t) and nst >= 2 and 'status' not in gb:
+            gb.insert(0, 'status'); f.pop('status', None)
+        if not gb and not q['date_group'] and re.search(r'\bage?ing\b|\baging\b|\bbuckets?\b|how old', t):
+            gb = ['ageing_group']; f.setdefault('status', 'pending')
+        q['rate'] = bool(re.search(r'\brate\b|percent|percentage|%|ratio|conversion|achiev|performance|performing', t))
+        q['rank'] = 'worst' if re.search(r'\bworst|\bpoor|\blowest|\bbad|\bweak|\bslow', t) else ('best' if re.search(r'\bbest|\btop\b|\bhighest|\bgood|\bstrong|\bfast', t) else None)
+        if q['rank'] and not gb and not f.get('circle'):
+            gb = ['circle']
         if gb and 'status' not in gb and len(gb) == 1 and not f.get('status') and not ev and re.search(r'status|split|mix', t):
             gb.append('status')
         q['group_by'] = gb[:2] if gb else q['group_by']
@@ -175,6 +215,9 @@ class LocalBrain:
         mt = re.search(r'\btop\s*(\d+)|\b(\d+)\s*(oldest|worst|latest|newest)', t)
         if mt: q['top'] = int(mt.group(1) or mt.group(2))
         counting = bool(re.search(r'how many|count|number of|\btotal', t))
+        if re.search(r'\boldest\b', t) and not f.get('status'): f['status'] = 'pending'
+        q['activity'] = bool((d0 or d1) and not gb and not q['date_group'] and
+                             re.search(r'summary|what happened|activity|update|progress|movement|report|done', t))
         if not counting and re.search(r'\blist\b|\bshow (me )?(the )?(all )?srs?\b|which srs|\boldest\b|\bworst srs?\b|\bsr list|\bsrs? (with|in|of|where)', t) and not gb:
             q['list'] = True
 
@@ -242,6 +285,19 @@ class LocalBrain:
         state = {k: q[k] for k in ('filters', 'group_by', 'top', 'list', 'date_group', 'event')}
         sug = []
 
+        if q.get('activity'):
+            return self._activity(f, scope, user, state)
+        if (q.get('rate') or q.get('rank')) and q['group_by'] and q['out'] == 'answer' and 'status' not in q['group_by']:
+            return self._rates(q, f, scope, user, state)
+        if q.get('rate') and not q['group_by'] and q['out'] == 'answer':
+            tot = run('aggregate', {'filters': {k: v for k, v in f.items() if k != 'status'}})
+            n = tot.get('total') or 0
+            if not n: return f'No SRs match {scope}.', [], state, []
+            oa = tot['statuses'].get('OnAir', 0)
+            sc = self._scope({k: v for k, v in f.items() if k != 'status'}, q.get('event'))
+            return (f"OnAir rate {sc}: **{oa / n:.0%}** ({oa:,} of {n:,} SRs are OnAir; {n - oa:,} are not).\n\n" +
+                    _md_table(['Status', 'SRs', 'Share'], [(k, v, f'{v / n:.0%}') for k, v in sorted(tot['statuses'].items(), key=lambda x: -x[1])]),
+                    [], state, ['Circle-wise OnAir rate', 'Which circle is worst?'])
         if q['date_group'] and q.get('event'):
             agg = run('aggregate', {'date_group': {'field': q['event'], 'period': q['date_group']}, 'filters': f,
                                     'group_by': [g for g in q['group_by'] if g != 'exit_month'][:1]})
@@ -273,7 +329,10 @@ class LocalBrain:
         tot = run('aggregate', {'filters': f})
         if not tot['total']: return f'No SRs match {scope}.', [], state, []
         st = tot['statuses']
-        ans = f"There are **{tot['total']:,}** SRs {scope}" + (f", average **{tot['avg_days']}** days." if tot.get('avg_days') is not None else '.')
+        unsure = not (f or q['group_by'] or q['overview'] or q['out'] != 'answer')
+        ans = ("_I couldn't match your question to a filter, so here is the overall status. Try naming a circle, a status "
+               "(pending, OnAir, PRI, rejected), days (e.g. over 60 days) or a time (last week)._\n\n" if unsure else '')
+        ans += f"There are **{tot['total']:,}** SRs {scope}" + (f", average **{tot['avg_days']}** days." if tot.get('avg_days') is not None else '.')
         order = ['OnAir', 'OnAir Pending', 'Open PRI', 'RFAI Pending', 'Rejected RFAI']
         rows = [(s, st.get(s, 0), f"{st.get(s, 0) / tot['total']:.0%}") for s in order if st.get(s)]
         ans += '\n\n' + _md_table(['Status', 'SRs', 'Share'], rows)
@@ -283,6 +342,53 @@ class LocalBrain:
             files.append(r['_file'])
         sug = ['Circle-wise breakdown', 'Make a PPT of this', 'Export this to Excel']
         return ans, files, state, sug
+
+    def _rates(self, q, f, scope, user, state):
+        """OnAir rate per group, ranked (best or worst first)."""
+        run = lambda name, a: self.ai._run_tool(name, a, user)
+        g = q['group_by'][0]
+        ff = {k: v for k, v in f.items() if k != 'status'}
+        agg = run('aggregate', {'group_by': [g, 'status'], 'filters': ff})
+        rows = agg.get('rows') or []
+        if not rows: return f'No SRs match {scope}.', [], state, []
+        p = pd.DataFrame(rows).pivot_table(index=g, columns='status', values='srs', aggfunc='sum', fill_value=0)
+        tot = p.sum(axis=1); oa = p['OnAir'] if 'OnAir' in p.columns else tot * 0
+        pc = [c for c in ('OnAir Pending', 'Open PRI', 'RFAI Pending') if c in p.columns]
+        pend = p[pc].sum(axis=1) if pc else tot * 0
+        r = pd.DataFrame({'tot': tot, 'oa': oa, 'pend': pend}); r['rate'] = r['oa'] / r['tot'].where(r['tot'] > 0)
+        worst = q.get('rank') == 'worst'
+        r = r.sort_values(['rate', 'tot'], ascending=[worst, False])
+        top = r.index[0]
+        lab = LABEL.get(g, g)
+        head = (f"{'Lowest' if worst else 'Highest'} OnAir rate by {lab.lower()}: **{top}** at **{r.loc[top, 'rate']:.0%}** "
+                f"({int(r.loc[top, 'oa']):,} of {int(r.loc[top, 'tot']):,} SRs OnAir).")
+        ov = r['oa'].sum() / max(r['tot'].sum(), 1)
+        table = [[i, int(x.tot), int(x.oa), int(x.pend), f'{x.rate:.0%}'] for i, x in r.head(25).iterrows()]
+        ans = head + f" Overall rate is {ov:.0%}.\n\n" + _md_table([lab, 'SRs', 'OnAir', 'Pending', 'OnAir %'], table)
+        from ai_assistant import _tl
+        if hasattr(_tl, 'calls'): _tl.calls[:] = []      # the rate table is the answer; a count chart would mislead
+        return ans, [], state, [f"Pending SRs in {top}", 'Make a PPT of this']
+
+    def _activity(self, f, scope, user, state):
+        """What happened in a time window, across all milestones."""
+        run = lambda name, a: self.ai._run_tool(name, a, user)
+        base = {k: v for k, v in f.items() if k not in ('date_field', 'status')}
+        rows = []
+        for ev, lab in (('initial_rfai', 'RFAI offered'), ('rfai_rejection', 'RFAI rejected'), ('final_rfai', 'Final RFAI'),
+                        ('first_pri_start', 'PRI opened'), ('last_pri_close', 'PRI closed'), ('onair', 'Went OnAir')):
+            a = run('aggregate', {'filters': dict(base, date_field=ev)})
+            rows.append((lab, a.get('total', 0)))
+        fm = lambda x: pd.Timestamp(x).strftime('%d %b %Y')
+        a_, z_ = f.get('date_from'), f.get('date_to')
+        when = (f'on {fm(a_)}' if a_ == z_ else f'from {fm(a_)} to {fm(z_)}') + (' in ' + f['circle'].replace(',', ', ') if f.get('circle') else '')
+        from ai_assistant import _tl
+        if hasattr(_tl, 'calls'):
+            _tl.calls[:] = [('aggregate', {'filters': base}, {'rows': [{'milestone': l, 'srs': n} for l, n in rows], 'total_srs': sum(n for _, n in rows)})]
+        busiest = max(rows, key=lambda x: x[1])
+        ans = ((f"Activity {when}: **{busiest[1]:,}** {busiest[0].lower()}, the busiest milestone." if busiest[1] else
+                f"No milestone activity {when}.") +
+               '\n\n' + _md_table(['Milestone', 'SRs'], rows))
+        return ans, [], state, ['Circle-wise OnAir last 7 days', 'Pending over 90 days']
 
     def _finish_agg(self, q, agg, scope, user, state, what):
         run = lambda name, a: self.ai._run_tool(name, a, user)
@@ -548,6 +654,8 @@ class LocalBrain:
         if f.get('circle'): p.append('in ' + f['circle'].replace(',', ', '))
         for k in ('oem', 'toco', 'category', 'project'):
             if f.get(k): p.append(f[k].replace(',', ', '))
+        if f.get('min_days'): p.append(f"over {f['min_days']} days")
+        if f.get('max_days'): p.append(f"under {f['max_days']} days")
         if f.get('aging'): p.append('over ' + f['aging'][1:] + ' days' if f['aging'].startswith('>') else f['aging'] + ' days old')
         if f.get('month'): p.append('for ' + f['month'].replace(',', ', '))
         if f.get('date_field'):

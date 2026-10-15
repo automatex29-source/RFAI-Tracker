@@ -71,6 +71,8 @@ FILTER_PROPS = {
     "month": {"type": "string", "description": "Comma-separated exit months like \"Jan'26,Feb'26\""},
     "aging": {"type": "string", "enum": ["0-30", "30-60", "60-90", ">90", ">30"]},
     "search": {"type": "string", "description": "Part of an SR number or site ID"},
+    "min_days": {"type": "integer", "description": "Only SRs with more than this many days (delay)"},
+    "max_days": {"type": "integer", "description": "Only SRs with fewer than this many days (delay)"},
     "date_field": {"type": "string", "enum": list(DATE_COLS), "description": "Restrict to SRs whose date in this field falls between date_from and date_to"},
     "date_from": {"type": "string", "description": "YYYY-MM-DD"},
     "date_to": {"type": "string", "description": "YYYY-MM-DD"},
@@ -258,6 +260,10 @@ class Assistant:
             if f.get('date_from'): out['dfrom'] = str(f['date_from'])
             if f.get('date_to'): out['dto'] = str(f['date_to'])
         if f.get('search'): out['q'] = str(f['search'])
+        out.pop('min_days', None); out.pop('max_days', None)
+        if f.get('min_days') and not out.get('aging'):
+            n = int(f['min_days']); out['aging'] = '>90' if n >= 90 else ('>30' if n >= 30 else '')
+            if not out['aging']: out.pop('aging')
         return out
 
     def _views(self, files):
@@ -375,7 +381,13 @@ class Assistant:
             if 'date_to' in p: p['dto'] = p.pop('date_to')
         else:
             p.pop('date_from', None); p.pop('date_to', None)
-        return self.xl_filter(df, p)
+        lo, hi = p.pop('min_days', None), p.pop('max_days', None)
+        df = self.xl_filter(df, p)
+        if lo or hi:                       # any day threshold, e.g. "older than 120 days"
+            d = pd.to_numeric(df['delay'], errors='coerce')
+            if lo: df = df[d > float(lo)]
+            if hi: df = df[d < float(hi)]
+        return df
 
     @staticmethod
     def _days(df):
