@@ -1180,58 +1180,92 @@ def mk_sort_val(m):
          'jul','aug','sep','oct','nov','dec'].index(p[0][:3].lower())
     except: return 0
 
+_PEND_ST=('OnAir Pending','Open PRI','RFAI Pending')
+
+def _pdate(v):
+    try:
+        fp=str(v).split('-')
+        if len(fp)==3:
+            mo=MON_IDX.get(fp[1].lower())
+            if mo is not None: return date(int(fp[2]),mo+1,int(fp[0]))
+    except Exception: pass
+    return None
+
+def _mk_of(d): return f"{MON[d.month-1]}'{str(d.year)[2:]}"
+
+def _mk_end(mk_col):
+    import calendar as _cal
+    p=mk_col.split("'"); mo=MON_IDX[p[0][:3].lower()]+1; yr=int('20'+p[1])
+    return date(yr,mo,_cal.monthrange(yr,mo)[1])
+
+def _journey_end_sv(r):
+    """Last journey month (sort value) an SR is shown in: its OnAir month when live,
+    the current month while it is still waiting for OnAir, otherwise its exit month."""
+    st=r.get('srStatus','')
+    if st=='OnAir':
+        d=_pdate(r.get('onAir',''))
+        if d: return mk_sort_val(_mk_of(d))
+    if st in _PEND_ST: return mk_sort_val(_mk_of(date.today()))
+    e=r.get('exitMK','')
+    return mk_sort_val(e) if e else 999999
+
+def journey_months(df):
+    """Every month from the first journey month to the last one shown (today's month while
+    any SR is still waiting for OnAir), with no gaps."""
+    all_mks=(set(df['exitMK'].dropna().astype(str))|set(df['journeyMK'].dropna().astype(str))) if len(df) else set()
+    svs=[mk_sort_val(m) for m in all_mks if m and m!='nan']; svs=[v for v in svs if v]
+    if not svs: return []
+    lo,hi=min(svs),max(svs)
+    if df['srStatus'].isin(_PEND_ST).any(): hi=max(hi,mk_sort_val(_mk_of(date.today())))
+    return [f"{MON[v%12]}'{str(v//12)[2:]}" for v in range(lo,hi+1)][-60:]
+
+def month_running_mask(df, ms):
+    """SRs that appear in any of the months ms in the Journey Table (from their RFAI month
+    to their OnAir month, or to today while still waiting for OnAir)."""
+    sel=[mk_sort_val(m) for m in ms if m]; sel=[v for v in sel if v]
+    if not len(df) or not sel: return pd.Series(False,index=df.index)
+    js=df['journeyMK'].astype(str).map(lambda m: mk_sort_val(m) if m and m!='nan' else 0)
+    cols=[c for c in ('srStatus','onAir','exitMK') if c in df.columns]
+    es=pd.Series([_journey_end_sv(r) for r in df[cols].to_dict('records')],index=df.index)
+    hit=pd.Series(False,index=df.index)
+    for v in sel: hit|=(js>0)&(js<=v)&(es>=v)
+    return hit|df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)
+
 def month_cells(r, months):
     """Status / days / ageing group of one SR in each journey month (None = blank).
-    Shared by the Journey Table and the Excel export so both always agree."""
+    Shared by the Journey Table and the Excel export so both always agree.
+    An SR shows from its RFAI month onwards: months before OnAir (or before today, while it
+    is still pending) show its running status and days at that month's end."""
     out=[]
-    jmk_r=r.get('journeyMK',''); emk_r=r.get('exitMK','')
+    jmk_r=r.get('journeyMK','')
     js=mk_sort_val(jmk_r) if jmk_r else 0
-    es=mk_sort_val(emk_r) if emk_r else 999999
     st_final=r.get('srStatus',''); dl_cur=r.get('delay',-1); grp_cur=r.get('group','N/A')
-    oa_str=r.get('onAir',''); oa_mk_str=''
-    if oa_str and st_final=='OnAir':
-        try:
-            fp=oa_str.split('-')
-            if len(fp)==3:
-                fmo=MON_IDX.get(fp[1].lower())
-                if fmo is not None: oa_mk_str=f"{MON[fmo]}'{str(int(fp[2]))[2:]}"
-        except Exception: pass
-    oa_ms=mk_sort_val(oa_mk_str) if oa_mk_str else 999999
-    anchor_d=None
-    for af in [r.get('finalRfai',''),r.get('rfaiNotice','')]:
-        if af:
-            try:
-                fp=af.split('-')
-                if len(fp)==3:
-                    fmo=MON_IDX.get(fp[1].lower())
-                    if fmo is not None:
-                        anchor_d=date(int(fp[2]),fmo+1,int(fp[0])); break
-            except Exception: pass
-    pri_days_val=r.get('priDays',0) or 0
+    end_sv=_journey_end_sv(r)
+    oa_d=_pdate(r.get('onAir','')) if st_final=='OnAir' else None
+    running=(st_final=='OnAir' and oa_d is not None) or st_final in _PEND_ST
+    anchor_d=_pdate(r.get('finalRfai','')) or _pdate(r.get('rfaiNotice',''))
+    pf=_pdate(r.get('priFirst','')); pl=_pdate(r.get('priLast',''))
+    today=date.today()
     for mk_col in months:
         ms=mk_sort_val(mk_col)
-        if js==0 or ms<js or ms>es:
+        if js==0 or ms<js or ms>end_sv:
             out.append(None)
-        elif st_final=='OnAir' and oa_mk_str:
-            if ms<oa_ms:
-                try:
-                    import calendar as _cal
-                    col_p=mk_col.split("'")
-                    mo_i=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].index(col_p[0][:3].lower())
-                    yr_c=int('20'+col_p[1]); last_d=_cal.monthrange(yr_c,mo_i+1)[1]
-                    mend=date(yr_c,mo_i+1,last_d)
-                    if anchor_d and mend>=anchor_d:
-                        live_d=max(0,(mend-anchor_d).days-(pri_days_val if isinstance(pri_days_val,int) else 0))
-                        lg='0-30' if live_d<=30 else '30-60' if live_d<=60 else '60-90' if live_d<=90 else '>90'
-                        out.append(('OnAir Pending',str(live_d),lg))
-                    else: out.append(('OnAir Pending','—','N/A'))
-                except Exception: out.append(('OnAir Pending','—','N/A'))
-            elif ms==oa_ms:
-                out.append(('OnAir','' if dl_cur==-1 else str(dl_cur),grp_cur))
-            else:
-                out.append(None)
-        else:
+        elif ms==end_sv or not running:
             out.append((st_final,'' if dl_cur==-1 else str(dl_cur),grp_cur))
+        else:
+            try:
+                mend=min(_mk_end(mk_col),today)
+                if pf and pf<=mend and (pl is None or pl>mend): st='Open PRI'
+                elif anchor_d is None or anchor_d>mend: st='RFAI Pending'
+                else: st='OnAir Pending'
+                if anchor_d and mend>=anchor_d:
+                    pri=0
+                    if pf and pf<=mend: pri=max(0,(min(pl or mend,mend)-max(pf,anchor_d)).days)
+                    live_d=max(0,(mend-anchor_d).days-pri)
+                    lg='0-30' if live_d<=30 else '30-60' if live_d<=60 else '60-90' if live_d<=90 else '>90'
+                    out.append((st,str(live_d),lg))
+                else: out.append((st,'—','N/A'))
+            except Exception: out.append(('OnAir Pending','—','N/A'))
     return out
 
 def row_html(r, months=None):
@@ -1748,8 +1782,7 @@ def filter_data(
     if oem:      df=df[df['oem'].isin(oem.split(','))]
     if status:   df=df[df['srStatus'].isin(status.split(','))]
     if month:
-        ms=set(month.split(','))
-        df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)]
+        df=df[month_running_mask(df,month.split(','))]
     if search:
         s=search.upper()
         df=df[df['srNo'].astype(str).str.upper().str.contains(s,na=False,regex=False)|
@@ -1761,9 +1794,7 @@ def filter_data(
     if month:
         show_months=sorted(month.split(','),key=mk_sort_val)
     else:
-        all_mks=(set(df['exitMK'].dropna().replace('',pd.NA).dropna().unique())|
-                 set(df['journeyMK'].dropna().replace('',pd.NA).dropna().unique()))
-        show_months=sorted([m for m in all_mks if m],key=mk_sort_val)
+        show_months=journey_months(df)
     page_df=df.iloc[s:s+page_size]
     html=''.join(row_html(r.to_dict(),show_months) for _,r in page_df.iterrows())
     return {"html":html,"total":total,"page":page,"pages":pages,
@@ -2216,7 +2247,7 @@ def _xl_filter(df, p):
         df=df[df['srStatus'].isin(want)]
     if p.get('month'):
         ms=set(p['month'].split(','))
-        df=df[df['exitMK'].isin(ms)|df['journeyMK'].isin(ms)] if p.get('scope')!='explore' else df[df['exitMK'].isin(ms)]
+        df=df[month_running_mask(df,ms)] if p.get('scope')!='explore' else df[df['exitMK'].isin(ms)]
     q=(p.get('search') or p.get('q') or '').strip().upper()
     if q:
         df=df[df['srNo'].astype(str).str.upper().str.contains(q,na=False,regex=False)|
@@ -2436,8 +2467,7 @@ def build_export_xlsx(df, path, filters_text, title, include_journey=True):
     def g(c): return df[c].astype(str).where(lambda x:~x.isin(['nan','None']),'') if c in df.columns else pd.Series('',index=df.index)
 
     if include_journey:
-        all_mks=(set(df['exitMK'].dropna().astype(str))|set(df['journeyMK'].dropna().astype(str)))
-        months=sorted([m for m in all_mks if m and m!='nan'],key=mk_sort_val)
+        months=journey_months(df)
         base=[('SR #','txtb'),('2G Site ID','txt'),('Circle','txt'),('ToCo Name','txt'),('Project Type','txt'),('OEM','txt'),('TSP','txt'),
               ('Partner','txt'),('TOCO Project','txt'),('Broad Project','txt'),('Initial RFAI','date'),('RFAI Rejection','date'),
               ('RFAI Re-offer','date'),('Final RFAI','date'),('1st PRI Start','date'),('Last PRI Close','date'),('PRI Days','num'),
