@@ -208,6 +208,15 @@ class LocalBrain:
         q['rank'] = 'worst' if re.search(r'\bworst|\bpoor|\blowest|\bbad|\bweak|\bslow', t) else ('best' if re.search(r'\bbest|\btop\b|\bhighest|\bgood|\bstrong|\bfast', t) else None)
         if q['rank'] and not gb and not f.get('circle'):
             gb = ['circle']
+        # a dimension named on its own ("toco analysis", "oem report", "partner") -> analysis by that dimension
+        q['analysis'] = bool(re.search(r'analy|\breport|breakdown|performance|insight|deep ?dive|\breview|scorecard|\bdetail|\bview\b', t))
+        dimf = {'circle': 'circle', 'oem': 'oem', 'category': 'category', 'project': 'project', 'toco': 'toco', 'domain': 'domain'}
+        if not gb and not q['sr'] and not q['date_group']:
+            for rx, key in GROUP_WORDS:
+                if key in ('status', 'exit_month', 'ageing_group'): continue
+                if re.search(r'\b(' + rx + r')\w*', t) and not f.get(dimf.get(key, '-')):
+                    gb = [key]; q['analysis'] = True
+                    break
         if gb and 'status' not in gb and len(gb) == 1 and not f.get('status') and not ev and re.search(r'status|split|mix', t):
             gb.append('status')
         q['group_by'] = gb[:2] if gb else q['group_by']
@@ -287,6 +296,9 @@ class LocalBrain:
 
         if q.get('activity'):
             return self._activity(f, scope, user, state)
+        if q.get('analysis') and len(q['group_by']) == 1 and q['group_by'][0] not in ('status', 'exit_month', 'ageing_group') \
+                and q['out'] == 'answer' and not q.get('rank'):
+            return self._analysis(q, f, scope, user, state)
         if (q.get('rate') or q.get('rank')) and q['group_by'] and q['out'] == 'answer' and 'status' not in q['group_by']:
             return self._rates(q, f, scope, user, state)
         if q.get('rate') and not q['group_by'] and q['out'] == 'answer':
@@ -342,6 +354,42 @@ class LocalBrain:
             files.append(r['_file'])
         sug = ['Circle-wise breakdown', 'Make a PPT of this', 'Export this to Excel']
         return ans, files, state, sug
+
+    def _analysis(self, q, f, scope, user, state):
+        """Full breakdown by one dimension: status mix, OnAir %, average days and key insights."""
+        run = lambda name, a: self.ai._run_tool(name, a, user)
+        g = q['group_by'][0]; lab = LABEL.get(g, g)
+        ff = {k: v for k, v in f.items() if k != 'status'}
+        days = {r[g]: r for r in (run('aggregate', {'group_by': [g], 'filters': f}).get('rows') or [])}
+        agg = run('aggregate', {'group_by': [g, 'status'], 'filters': f})       # last call: drives the stacked chart
+        rows = agg.get('rows') or []
+        if not rows: return f'No SRs match {scope}.', [], state, []
+        p = pd.DataFrame(rows).pivot_table(index=g, columns='status', values='srs', aggfunc='sum', fill_value=0)
+        col = lambda c: p[c] if c in p.columns else p.iloc[:, 0] * 0
+        tot = p.sum(axis=1)
+        r = pd.DataFrame({'tot': tot, 'oa': col('OnAir'), 'pend': col('OnAir Pending') + col('RFAI Pending'), 'pri': col('Open PRI'),
+                          'rej': col('Rejected RFAI')})
+        r['rate'] = r['oa'] / r['tot'].where(r['tot'] > 0)
+        r['avg'] = [days.get(i, {}).get('avg_days') for i in r.index]
+        r = r.sort_values('tot', ascending=False)
+        r.index = [i if str(i).strip() not in ('', 'nan', 'None') else '(blank)' for i in r.index]
+        T = int(r['tot'].sum())
+        table = [[i, int(x.tot), int(x.oa), int(x.pend), int(x.pri), int(x.rej), f'{x.rate:.0%}', '' if x.avg is None else x.avg]
+                 for i, x in r.head(25).iterrows()]
+        table.append(['Total', T, int(r['oa'].sum()), int(r['pend'].sum()), int(r['pri'].sum()), int(r['rej'].sum()),
+                      f"{r['oa'].sum() / max(T, 1):.0%}", ''])
+        big = r.index[0]; ok = r[r['tot'] >= max(10, r['tot'].max() * .05)] if len(r) > 1 else r
+        pts = [f"**{big}** is the largest {lab.lower()} with **{int(r.loc[big, 'tot']):,}** SRs ({r.loc[big, 'tot'] / max(T, 1):.0%})."]
+        if len(ok) > 1:
+            b, w = ok['rate'].idxmax(), ok['rate'].idxmin()
+            pts.append(f"Best OnAir rate: **{b}** ({ok.loc[b, 'rate']:.0%}); lowest: **{w}** ({ok.loc[w, 'rate']:.0%}).")
+            if ok['avg'].notna().any():
+                s_ = ok['avg'].astype(float).idxmax(); pts.append(f"Longest average days: **{s_}** ({ok.loc[s_, 'avg']} days).")
+            pp = (ok['pend'] + ok['pri']).idxmax(); pts.append(f"Most still pending: **{pp}** ({int(ok.loc[pp, 'pend'] + ok.loc[pp, 'pri']):,} SRs).")
+        ans = (f"**{lab} analysis** {scope}: {T:,} SRs across {len(r)} {lab.lower()}{'s' if len(r) != 1 else ''}.\n\n" +
+               '\n'.join('- ' + x for x in pts) + '\n\n' +
+               _md_table([lab, 'SRs', 'OnAir', 'Pending', 'Open PRI', 'Rejected', 'OnAir %', 'Avg days'], table))
+        return ans, [], state, [f'Make a PPT of {lab.lower()} analysis', f'Export {lab.lower()}-wise to Excel', f'Which {lab.lower()} is worst?']
 
     def _rates(self, q, f, scope, user, state):
         """OnAir rate per group, ranked (best or worst first)."""
