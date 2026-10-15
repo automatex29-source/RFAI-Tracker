@@ -2596,11 +2596,11 @@ async def ai_chat(request:Request):
     user=(request.state.user or ('admin',''))[0]
     try:
         ppt=d.get('ppt') if isinstance(d.get('ppt'),dict) else None
-        conv,answer,files,sug=await asyncio.to_thread(ai.chat,user,str(d.get('conv') or ''),msg,ppt)
+        conv,answer,files,sug,views=await asyncio.to_thread(ai.chat,user,str(d.get('conv') or ''),msg,ppt)
     except Exception as e:
         log.error(f"  AI chat failed: {e}")
         return JSONResponse({"error":f"The assistant could not answer: {str(e)[:300]}"},status_code=502)
-    return {"conv":conv,"answer":answer,"files":files,"suggest":sug,"engine":ai.engine()}
+    return {"conv":conv,"answer":answer,"files":files,"suggest":sug,"views":views,"engine":ai.engine()}
 
 @app.get("/api/ai/file/{fid}")
 def ai_file(fid:str, request:Request):

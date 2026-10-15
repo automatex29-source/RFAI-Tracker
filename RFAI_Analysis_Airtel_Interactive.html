@@ -4899,7 +4899,7 @@ function _svChart(c,t){
     v.forEach((x,i)=>{ const a1=a0+2*Math.PI*x/tot, big=(a1-a0)>Math.PI?1:0, col=_svCol(cats[i],i);
       const p=(a,rr)=>[cx+rr*Math.cos(a),cy+rr*Math.sin(a)];
       const [x0,y0]=p(a0,R),[x1,y1]=p(a1,R),[x2,y2]=p(a1,r),[x3,y3]=p(a0,r);
-      if(x>0) out+='<path class="sv-m" d="M'+x0+' '+y0+'A'+R+' '+R+' 0 '+big+' 1 '+x1+' '+y1+'L'+x2+' '+y2+'A'+r+' '+r+' 0 '+big+' 0 '+x3+' '+y3+'Z" fill="'+col+'" stroke="'+t.bg+'" stroke-width="4"><title>'+_svE(cats[i])+': '+_svF(x)+' ('+Math.round(x/tot*100)+'%)</title></path>';
+      if(x>0) out+='<path class="sv-m" data-i="'+i+'" data-s="0" d="M'+x0+' '+y0+'A'+R+' '+R+' 0 '+big+' 1 '+x1+' '+y1+'L'+x2+' '+y2+'A'+r+' '+r+' 0 '+big+' 0 '+x3+' '+y3+'Z" fill="'+col+'" stroke="'+t.bg+'" stroke-width="4"><title>'+_svE(cats[i])+': '+_svF(x)+' ('+Math.round(x/tot*100)+'%)</title></path>';
       const [lx,ly]=p((a0+a1)/2,(R+r)/2); if(x/tot>.05) out+='<text x="'+lx+'" y="'+ly+'" fill="#fff" font-size="22" font-weight="800" text-anchor="middle" dominant-baseline="middle">'+Math.round(x/tot*100)+'%</text>';
       a0=a1; });
     out+='<text x="'+cx+'" y="'+(cy-6)+'" fill="'+t.ink+'" font-size="40" font-weight="800" text-anchor="middle">'+_svF(tot)+'</text><text x="'+cx+'" y="'+(cy+30)+'" fill="'+t.mut+'" font-size="15" font-weight="700" text-anchor="middle">TOTAL SRS</text>';
@@ -4920,17 +4920,17 @@ function _svChart(c,t){
     V.forEach((v,si)=>{ const col=multi?_svCol(ser[si].name,si):t.acc;
       const pts=v.map((x,i)=>[L+slot*(i+.5),T+ph-ph*x/mx]);
       out+='<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="'+col+'" stroke-width="4" stroke-linejoin="round"/>';
-      pts.forEach((p,i)=>{ out+='<circle class="sv-m" cx="'+p[0]+'" cy="'+p[1]+'" r="7" fill="'+t.bg+'" stroke="'+col+'" stroke-width="3"><title>'+_svE(cats[i])+': '+_svF(v[i])+'</title></circle>'+(lab?'<text x="'+p[0]+'" y="'+(p[1]-14)+'" fill="'+t.ink2+'" font-size="'+fs+'" font-weight="700" text-anchor="middle">'+_svF(v[i])+'</text>':''); }); });
+      pts.forEach((p,i)=>{ out+='<circle class="sv-m" data-i="'+i+'" data-s="'+si+'" cx="'+p[0]+'" cy="'+p[1]+'" r="7" fill="'+t.bg+'" stroke="'+col+'" stroke-width="3"><title>'+_svE(cats[i])+': '+_svF(v[i])+'</title></circle>'+(lab?'<text x="'+p[0]+'" y="'+(p[1]-14)+'" fill="'+t.ink2+'" font-size="'+fs+'" font-weight="700" text-anchor="middle">'+_svF(v[i])+'</text>':''); }); });
   } else {
     const k=stacked?1:V.length, gap=slot*.22, bw=(slot-gap)/k;
     cats.forEach((c,i)=>{ let acc=0;
       V.forEach((v,si)=>{ const x=v[i], len=(bar?pw:ph)*x/mx; const col=multi?_svCol(ser[si].name,si):(n>2&&i!==top?t.grey:t.acc);
         const o=stacked?0:si*bw, tip=_svE(c)+(multi?' · '+_svE(ser[si].name):'')+': '+_svF(x);
         if(bar){ const y=T+slot*i+gap/2+o, x0=L+(stacked?pw*acc/mx:0);
-          out+='<rect class="sv-m" x="'+x0+'" y="'+y+'" width="'+len+'" height="'+bw+'" rx="3" fill="'+col+'"><title>'+tip+'</title></rect>';
+          out+='<rect class="sv-m" data-i="'+i+'" data-s="'+si+'" x="'+x0+'" y="'+y+'" width="'+len+'" height="'+bw+'" rx="3" fill="'+col+'"><title>'+tip+'</title></rect>';
           if(lab&&!stacked) out+='<text x="'+(x0+len+6)+'" y="'+(y+bw/2+5)+'" fill="'+t.ink+'" font-size="'+fs+'" font-weight="700">'+_svF(x)+'</text>'; }
         else { const x0=L+slot*i+gap/2+o, y=T+ph-(ph*(acc+x)/mx);
-          out+='<rect class="sv-m" x="'+x0+'" y="'+y+'" width="'+bw+'" height="'+len+'" rx="3" fill="'+col+'"><title>'+tip+'</title></rect>';
+          out+='<rect class="sv-m" data-i="'+i+'" data-s="'+si+'" x="'+x0+'" y="'+y+'" width="'+bw+'" height="'+len+'" rx="3" fill="'+col+'"><title>'+tip+'</title></rect>';
           if(lab&&(!stacked||len>22)) out+='<text x="'+(x0+bw/2)+'" y="'+(stacked?y+len/2+5:y-7)+'" fill="'+(stacked?'#fff':t.ink)+'" font-size="'+fs+'" font-weight="700" text-anchor="middle">'+_svF(x)+'</text>'; }
         if(stacked) acc+=x; });
       const nm=c.length>12?c.slice(0,11)+'…':c;
@@ -5050,6 +5050,91 @@ function _aiOutMount(root,files){
     else if(f.preview.type==='image'){ const im=el.querySelector('img'); if(im) im.onclick=()=>{ const lb=document.createElement('div'); lb.className='sv-lb'; lb.innerHTML='<img class="sv-lb-img" src="'+im.src+'">'; lb.onclick=()=>lb.remove(); document.body.appendChild(lb); }; }
   });
 }
+/* interactive answer views: switchable chart / table; click to open the SRs behind a number */
+const _AV_DIM={circle:'circle',status:'status',oem:'oem',category:'category',project:'project',toco:'toco',domain:'domain',exit_month:'month',ageing_group:'aging'};
+const _AV_LBL={circle:'Circle',status:'Status',oem:'OEM',category:'TOCO project',project:'Project',toco:'ToCo',partner:'Partner',tsp:'TSP',domain:'Project type',exit_month:'Month',rfai_month:'RFAI month',ageing_group:'Ageing'};
+const _avs=[];
+function _avLabel(k){ return _AV_LBL[k]||k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()); }
+function _avRange(lab,period){
+  const m=String(lab).match(/(\d{4})-(\d{2})(?:-(\d{2}))?/); if(!m) return null;
+  const y=+m[1], mo=+m[2]-1, d=m[3]?+m[3]:1, pad=n=>String(n).padStart(2,'0'), iso=dt=>dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate());
+  const a=new Date(y,mo,d); let b;
+  if(period==='day') b=a; else if(period==='week') b=new Date(y,mo,d+6); else b=new Date(y,mo+1,0);
+  return [iso(a),iso(b)];
+}
+function _avOpts(v,row){
+  const o=Object.assign({},v.filters||{}); let ok=true, lab=[];
+  v.dims.forEach(k=>{ const val=row[k];
+    if(v.date&&k===v.dims[0]&&!_AV_DIM[k]){ const r=_avRange(val,v.date.period); if(r&&v.date.ev){ o.ev=v.date.ev; o.dfrom=r[0]; o.dto=r[1]; lab.push(val); } else ok=false; }
+    else if(_AV_DIM[k]){ o[_AV_DIM[k]]=val; lab.push(val); } else ok=false; });
+  return ok?{o,t:lab.join(' · ')}:null;
+}
+function _avOpen(opt){ aiClose(); exploreFromHome(opt); }   // the chat stays as it was when reopened
+function _aiView(v){
+  const id=_avs.push(v)-1;
+  if(v.type==='srs'){
+    const cols=[['srNo','SR'],['circle','Circle'],['srStatus','Status'],['delay','Days'],['finalRfai','Final RFAI'],['onAir','OnAir']];
+    return '<div class="av" data-av="'+id+'"><div class="av-h"><span class="av-badge">SR list</span><b>'+(v.total||v.rows.length).toLocaleString('en-US')+' SRs</b><small>Click an SR to see its full journey</small></div>'+
+      '<div class="av-tw"><table class="av-tb"><thead><tr>'+cols.map(c=>'<th>'+c[1]+'</th>').join('')+'</tr></thead><tbody>'+
+      v.rows.map(r=>'<tr class="av-sr" data-sr="'+_svE(r.srNo)+'">'+cols.map(c=>{ const x=r[c[0]], st=_SV_ST[String(x).toLowerCase()];
+        return '<td'+(c[0]==='delay'?' class="n"':'')+(st?' style="color:'+st+';font-weight:700"':'')+'>'+(c[0]==='delay'&&(+x)>90?'<b style="color:#e40000">'+_svE(x)+'</b>':_svE(x))+'</td>'; }).join('')+'</tr>').join('')+'</tbody></table></div>'+
+      (v.total>v.rows.length?'<div class="av-f"><button type="button" class="av-all">Open all '+v.total.toLocaleString('en-US')+' SRs</button></div>':'')+'</div>';
+  }
+  const one=v.dims.length===1, line=!!v.date, hasAvg=v.rows.some(r=>r.avg_days!=null);
+  const modes=line?[['line','Trend'],['column','Bars'],['table','Table']]:one?[['bar','Bars'],['pie','Donut'],['table','Table']]:[['stacked','Stacked'],['table','Table']];
+  v.mode=modes[0][0]; v.metric='srs';
+  return '<div class="av" data-av="'+id+'"><div class="av-h"><span class="av-badge">Interactive</span><b>'+_svE(v.dims.map(_avLabel).join(' × '))+'</b>'+
+    '<div class="av-seg">'+modes.map((m,i)=>'<button type="button" data-m="'+m[0]+'" class="'+(i?'':'on')+'">'+m[1]+'</button>').join('')+'</div>'+
+    (hasAvg&&one?'<div class="av-seg av-met"><button type="button" data-k="srs" class="on">SRs</button><button type="button" data-k="avg_days">Avg days</button></div>':'')+'</div>'+
+    '<div class="av-b"></div><div class="av-f"><small>Hover for values · click a '+(line?'point':'bar')+' or row to open those SRs</small>'+
+    '<button type="button" class="av-all">Open all '+((v.total||0).toLocaleString('en-US'))+' SRs</button></div></div>';
+}
+function _avDraw(el){
+  const v=_avs[+el.dataset.av], b=el.querySelector('.av-b'), t=_SVT.airtel;
+  if(v.type==='srs') return;
+  const k0=v.dims[0], met=v.metric;
+  if(v.mode==='table'){
+    let cols, rows;
+    if(v.dims.length===2){
+      const k1=v.dims[1], cs=[...new Set(v.rows.map(r=>r[k0]))], ss=[...new Set(v.rows.map(r=>r[k1]))];
+      cols=[_avLabel(k0)].concat(ss,['Total']);
+      rows=cs.map(c=>{ const vals=ss.map(x=>{ const r=v.rows.find(r=>r[k0]===c&&r[k1]===x); return r?r.srs:0; }); return {l:c,v:vals.concat([vals.reduce((a,b)=>a+b,0)]),row:{[k0]:c}}; });
+      b.innerHTML='<div class="av-tw"><table class="av-tb"><thead><tr>'+cols.map((c,j)=>'<th'+(j?' class="n"':'')+'>'+_svE(c)+'</th>').join('')+'</tr></thead><tbody>'+
+        rows.map((r,i)=>'<tr class="av-r" data-ri="'+i+'"><td><b>'+_svE(r.l)+'</b></td>'+r.v.map(x=>'<td class="n">'+_svF(x)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+      b.querySelectorAll('.av-r').forEach(tr=>tr.onclick=()=>{ const q=_avOpts({dims:[k0],filters:v.filters,date:v.date},rows[+tr.dataset.ri].row); if(q) _avOpen(q.o,q.t); });
+      return;
+    }
+    const mx=Math.max(1,...v.rows.map(r=>r.srs||0));
+    b.innerHTML='<div class="av-tw"><table class="av-tb"><thead><tr><th>'+_svE(_avLabel(k0))+'</th><th class="n">SRs</th><th class="n">Share</th>'+(v.rows.some(r=>r.avg_days!=null)?'<th class="n">Avg days</th>':'')+'</tr></thead><tbody>'+
+      v.rows.map((r,i)=>{ const tot=v.rows.reduce((a,x)=>a+(x.srs||0),0)||1; return '<tr class="av-r" data-ri="'+i+'"><td><b>'+_svE(r[k0])+'</b></td><td class="n"><span class="av-bar" style="width:'+Math.round((r.srs||0)/mx*60)+'px"></span>'+_svF(r.srs)+'</td><td class="n">'+Math.round((r.srs||0)/tot*100)+'%</td>'+(r.avg_days!=null||v.rows.some(x=>x.avg_days!=null)?'<td class="n">'+(r.avg_days==null?'–':_svF(r.avg_days))+'</td>':'')+'</tr>'; }).join('')+'</tbody></table></div>';
+    b.querySelectorAll('.av-r').forEach(tr=>tr.onclick=()=>{ const q=_avOpts(v,v.rows[+tr.dataset.ri]); if(q) _avOpen(q.o,q.t); });
+    return;
+  }
+  let spec;
+  if(v.dims.length===2){
+    const k1=v.dims[1], cs=[...new Set(v.rows.map(r=>r[k0]))], ss=[...new Set(v.rows.map(r=>r[k1]))];
+    spec={chart_type:'stacked_column',categories:cs.map(String),series:ss.map(x=>({name:String(x),values:cs.map(c=>{ const r=v.rows.find(r=>r[k0]===c&&r[k1]===x); return r?r.srs:0; })}))};
+    v._cs=cs; v._ss=ss;
+  } else {
+    spec={chart_type:v.mode==='line'?'line':v.mode==='pie'?'pie':(v.mode==='bar'&&v.rows.length>7?'bar':'column'),categories:v.rows.map(r=>String(r[k0])),
+          series:[{name:met==='srs'?'SRs':'Avg days',values:v.rows.map(r=>r[met]==null?0:r[met])}]};
+  }
+  b.innerHTML='<div class="av-chart">'+_svChart(spec,t)+'</div>';
+  b.querySelectorAll('.sv-m').forEach(m=>{ m.style.cursor='pointer'; m.onclick=()=>{
+    const i=+m.dataset.i, si=+m.dataset.s;
+    const row=v.dims.length===2?{[k0]:v._cs[i],[v.dims[1]]:v._ss[si]}:v.rows[i];
+    const q=_avOpts(v,row); if(q) _avOpen(q.o,q.t); }; });
+}
+function _avMount(root){
+  root.querySelectorAll('.av').forEach(el=>{
+    const v=_avs[+el.dataset.av];
+    el.querySelectorAll('.av-seg:not(.av-met) button').forEach(bn=>bn.onclick=()=>{ v.mode=bn.dataset.m; el.querySelectorAll('.av-seg:not(.av-met) button').forEach(x=>x.classList.toggle('on',x===bn)); _avDraw(el); });
+    el.querySelectorAll('.av-met button').forEach(bn=>bn.onclick=()=>{ v.metric=bn.dataset.k; el.querySelectorAll('.av-met button').forEach(x=>x.classList.toggle('on',x===bn)); _avDraw(el); });
+    const all=el.querySelector('.av-all'); if(all) all.onclick=()=>_avOpen(Object.assign({},v.filters||{}),'SRs from the assistant');
+    el.querySelectorAll('.av-sr').forEach(tr=>tr.onclick=()=>{ if(window.innerWidth<=700) aiClose(); srOpen(tr.dataset.sr); });
+    _avDraw(el);
+  });
+}
 const _AI_PPT_RX=/\b(ppt|pptx|power ?point|presentation|deck|slides?)\b/i;
 function _aiPptPrefs(){ let p=null; try{ p=JSON.parse(localStorage.getItem('rfai-ai-ppt')||'null'); }catch(e){} return Object.assign({length:'standard',theme:'airtel',images:'art'},p||{}); }
 function _aiPptCard(text){
@@ -5093,7 +5178,9 @@ async function _aiPost(text,ppt){
     else{
       _ai.conv=j.conv||''; sug=j.suggest||[];
       const cp='<button type="button" class="ai-copy" title="Copy answer" aria-label="Copy answer"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>';
-      t.innerHTML=cp+_aiMd(j.answer||'')+(j.files||[]).map(_aiOut).join('');
+      t.innerHTML=cp+_aiMd(j.answer||'')+(j.views||[]).map(_aiView).join('')+(j.files||[]).map(_aiOut).join('');
+      if((j.views||[]).length){ const tw=t.querySelector(':scope > .tw'); if(tw) tw.remove(); }   // the interactive view replaces the plain table
+      _avMount(t);
       t.querySelector('.ai-copy').onclick=function(){ try{ navigator.clipboard.writeText(j.answer||''); this.innerHTML='<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>'; }catch(e){} };
       if((j.files||[]).some(f=>f.preview&&f.preview.type!=='image')&&window.innerWidth>900) document.getElementById('ai-panel').classList.add('wide');
       _aiOutMount(t,j.files);
@@ -14913,6 +15000,29 @@ body.ai-open #ai-fab{display:none}
 .ai-m.a:hover .ai-copy{opacity:.7}.ai-m.a .ai-copy:hover{opacity:1;background:#f6eced}
 .ai-copy svg{width:14px;height:14px;fill:none;stroke:#8a7075;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
 @media(max-width:700px){#ai-panel.wide{width:auto}.ai-wide-b{display:none!important}.sv-lb{padding:8px}.sv-lb-st .sv-nav{width:36px;height:36px}.sv-strip button{flex-basis:110px}}
+/* interactive answer views */
+body.ai-open #sr-drawer-bg{z-index:969}body.ai-open #sr-drawer{z-index:970}
+.av{margin-top:10px;border:1px solid #efe2e4;border-radius:16px;background:#fff;overflow:hidden;box-shadow:0 8px 22px -16px rgba(120,20,30,.45)}
+.av-h{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:9px 10px;background:linear-gradient(180deg,#fff,#fff7f8);border-bottom:1px solid #f3e4e6}
+.av-badge{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#ff2a2a,#c4000f);padding:3px 7px;border-radius:6px}
+.ai-m.a .av-h b{color:#16181f;font-size:12.5px;margin-right:auto}
+.av-h small{flex-basis:100%;font-size:11px;color:#8a7075}
+.av-seg{display:flex;background:#f3edef;border-radius:9px;padding:2px}
+.av-seg button{border:none;background:none;font:inherit;font-size:11.5px;font-weight:700;color:#6b5a5e;padding:4px 9px;border-radius:7px;cursor:pointer}
+.av-seg button.on{background:#fff;color:#c4000f;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.av-b{padding:8px 10px}
+.av-chart{width:100%;aspect-ratio:800/430}.av-chart svg{width:100%;height:100%;display:block}
+.av-chart .sv-m:hover{filter:brightness(1.08)}
+.av-tw{max-height:300px;overflow:auto}
+.ai-m.a .av-tb{width:100%;border-collapse:collapse;font-size:12px}
+.ai-m.a .av-tb th{position:sticky;top:0;background:#1d2029;color:#fff;text-align:left;padding:6px 9px;font-size:11px;white-space:nowrap}
+.ai-m.a .av-tb th.n,.ai-m.a .av-tb td.n{text-align:right;font-variant-numeric:tabular-nums}
+.ai-m.a .av-tb td,.ai-m.a .av-tb tr:nth-child(even) td{padding:6px 9px;border-top:1px solid #f3e4e6;background:#fff;white-space:nowrap}
+.ai-m.a .av-tb tbody tr{cursor:pointer}.ai-m.a .av-tb tbody tr:hover td{background:#fff1f2}
+.av-bar{display:inline-block;height:8px;border-radius:4px;background:linear-gradient(90deg,#ff6b6b,#e40000);margin-right:8px;vertical-align:middle}
+.av-f{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #f3e4e6;background:#fffafa}
+.av-f small{flex:1;font-size:11px;color:#8a7075}
+.av-all{border:none;border-radius:9px;padding:7px 11px;font:inherit;font-size:11.5px;font-weight:800;color:#fff;cursor:pointer;background:linear-gradient(135deg,#ff2a2a,#c4000f);margin-left:auto}
 .ai-foot{text-align:center;font-size:10.5px;color:#b08a90;margin-top:6px}
 @media(max-width:700px){
   #ai-fab{right:14px;bottom:calc(78px + env(safe-area-inset-bottom));padding:6px}

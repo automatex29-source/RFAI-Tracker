@@ -211,7 +211,8 @@ class Assistant:
         return {'claude': 'Claude AI', 'gemini': 'Gemini AI · free', 'groq': 'Groq AI · free'}.get(self.engine(), 'Built-in · free & offline')
 
     def chat(self, user, conv_id, text, ppt=None):
-        """Returns (conv_id, answer_markdown, files, suggestions).
+        """Returns (conv_id, answer_markdown, files, suggestions, views).
+        views: data behind the answer (last breakdown or SR list), drawn as interactive charts in the chat.
         ppt: optional PowerPoint choices {length: short|standard|detailed, theme, images: none|art|ai}."""
         with _conv_lock:
             self._gc()
@@ -225,22 +226,58 @@ class Assistant:
                            'theme': ppt.get('theme') if ppt.get('theme') in THEME_NAMES else 'airtel',
                            'images': ppt.get('images') if ppt.get('images') in ('none', 'art', 'ai') else 'none'}
         _tl.ppt = conv.get('ppt') or {'length': 'standard', 'theme': 'airtel', 'images': 'none'}
+        _tl.calls = []
         eng = self.engine()
         if ppt and eng != 'builtin':
             text += f"\n\n(PowerPoint settings chosen by the user: about {PPT_SLIDES[_tl.ppt['length']]} slides. Theme and pictures are applied automatically.)"
         if eng == 'builtin':
-            return (conv_id,) + self._local(conv, text, user)
+            ans, files, sug = self._local(conv, text, user)
+            return conv_id, ans, files, sug, self._views(files)
         try:
             if eng == 'claude':
                 ans, files = self._chat_claude(conv, text, user)
             else:
                 ans, files = self._chat_openai(conv, text, user, eng)
-            return conv_id, ans, files, []
+            return conv_id, ans, files, [], self._views(files)
         except Exception as e:
             if eng == 'claude': raise
+            _tl.calls = []
             ans, files, sug = self._local(conv, text, user)
             why = 'is over its free limit right now' if '429' in str(e) else 'did not answer'
-            return conv_id, f"_{FREE_ENGINES[eng][2]} {why}, so the built-in assistant answered._\n\n" + ans, files, sug
+            return conv_id, f"_{FREE_ENGINES[eng][2]} {why}, so the built-in assistant answered._\n\n" + ans, files, sug, self._views(files)
+
+    # explorer filter names for the chat's "open these SRs" clicks
+    _EV = {'initial_rfai': 'rfai', 'final_rfai': 'final', 'first_pri_start': 'pri_open', 'last_pri_close': 'pri_close',
+           'onair': 'onair', 'rfai_rejection': 'rej'}
+
+    def _xp_filters(self, f):
+        out = {k: str(v) for k, v in (f or {}).items() if v not in (None, '') and k in FILTER_PROPS and k not in ('date_field', 'date_from', 'date_to', 'search')}
+        f = f or {}
+        if f.get('date_field') in self._EV:
+            out['ev'] = self._EV[f['date_field']]
+            if f.get('date_from'): out['dfrom'] = str(f['date_from'])
+            if f.get('date_to'): out['dto'] = str(f['date_to'])
+        if f.get('search'): out['q'] = str(f['search'])
+        return out
+
+    def _views(self, files):
+        """The data behind the answer, for an interactive chart (skipped when a file with its own preview was made)."""
+        if files: return []
+        for name, a, out in reversed(getattr(_tl, 'calls', [])):
+            if not isinstance(out, dict) or out.get('error'): continue
+            flt = self._xp_filters(a.get('filters'))
+            if name == 'aggregate' and out.get('rows'):
+                rows = out['rows'][:60]
+                dims = [k for k in rows[0] if k not in ('srs', 'avg_days', 'max_days')]
+                dg = a.get('date_group') or {}
+                return [{'type': 'agg', 'dims': dims, 'rows': rows, 'total': out.get('total_srs'), 'filters': flt,
+                         'date': {'ev': self._EV.get(dg.get('field')), 'period': dg.get('period', 'month')} if dg.get('field') else None}]
+            if name == 'aggregate' and out.get('statuses') and len(out['statuses']) > 1:
+                rows = [{'status': k, 'srs': v} for k, v in out['statuses'].items()]
+                return [{'type': 'agg', 'dims': ['status'], 'rows': rows, 'total': out.get('total'), 'filters': flt, 'date': None}]
+            if name == 'list_srs' and out.get('rows'):
+                return [{'type': 'srs', 'rows': out['rows'][:25], 'total': out.get('total_matches'), 'filters': flt}]
+        return []
 
     def _local(self, conv, text, user):
         from ai_local import LocalBrain
@@ -345,6 +382,11 @@ class Assistant:
         return pd.to_numeric(df['delay'], errors='coerce').where(lambda x: x >= 0)
 
     def _run_tool(self, name, a, user):
+        out = self._run_tool_(name, a, user)
+        if name in ('aggregate', 'list_srs') and hasattr(_tl, 'calls'): _tl.calls.append((name, a, out))
+        return out
+
+    def _run_tool_(self, name, a, user):
         if name == 'get_overview':
             df = self.get_df()
             if df is None or not len(df): return {"error": "No data is loaded yet."}
