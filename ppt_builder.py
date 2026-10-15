@@ -540,7 +540,7 @@ def build_deck(path, title, slides, theme='airtel', images='none'):
     with _LOCK:
         _set_theme(theme if theme in THEMES else 'airtel')
         try:
-            _build(path, title, slides, theme, images)
+            return _build(path, title, slides, theme, images)
         finally:
             _set_theme('airtel')
 
@@ -568,4 +568,7 @@ def _build(path, title, slides, theme, images):
          'bullets': d.bullets, 'section': d.section, 'closing': d.closing}.get(k, d.bullets)(s)
         if s.get('notes') and len(d.prs.slides) > before:
             d.prs.slides[before].notes_slide.notes_text_frame.text = str(s['notes'])
+        if k == 'chart' and not s.get('insights'):
+            s['insights'] = _auto_insights([str(c) for c in (s.get('categories') or [])][:30], [x for x in (s.get('series') or []) if x.get('values')], s.get('chart_type', 'column'))
     d.prs.save(path)
+    return slides, d.images

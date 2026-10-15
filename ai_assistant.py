@@ -163,6 +163,25 @@ def _num(v):
     return v
 
 
+def _xlsx_preview(path, max_sheets=8, max_rows=30, max_cols=14):
+    """First rows of each sheet, for the chat's spreadsheet preview."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        sheets = []
+        for ws in wb.worksheets[:max_sheets]:
+            rows = []
+            for r in ws.iter_rows(max_row=max_rows, max_col=max_cols, values_only=True):
+                rows.append(['' if v is None else (v.strftime('%d-%b-%Y') if hasattr(v, 'strftime') else
+                             (round(v, 2) if isinstance(v, float) else v)) for v in r])
+            while rows and not any(str(v).strip() for v in rows[-1]): rows.pop()
+            sheets.append({"name": ws.title, "rows": rows, "total": ws.max_row})
+        wb.close()
+        return {"type": "sheets", "sheets": sheets}
+    except Exception:
+        return None
+
+
 ST_COL = {'onair': '#10B981', 'onair pending': '#F59E0B', 'pending': '#F59E0B', 'open pri': '#3B82F6',
           'rejected rfai': '#EF4444', 'rejected': '#EF4444', 'rfai pending': '#94A3B8'}
 def _col(name, i, pal):
@@ -384,19 +403,19 @@ class Assistant:
             ftxt = ' · '.join(f"{k}: {v}" for k, v in (a.get('filters') or {}).items() if v)
             path, fid, fname = self._new_file(a.get('title') or 'RFAI export', '.xlsx', user)
             self.build_xlsx(df, path, ftxt, a.get('title') or 'RFAI export', include_journey=True)
-            return {"ok": True, "srs": len(df), "file": fname, "_file": self._meta(fid)}
+            return {"ok": True, "srs": len(df), "file": fname, "_file": self._meta(fid, _xlsx_preview(path))}
         if name == 'make_custom_excel':
             path, fid, fname = self._new_file(a['title'], '.xlsx', user)
             self._custom_xlsx(path, a['title'], a['sheets'])
-            return {"ok": True, "file": fname, "_file": self._meta(fid)}
+            return {"ok": True, "file": fname, "_file": self._meta(fid, _xlsx_preview(path))}
         if name == 'make_powerpoint':
             path, fid, fname = self._new_file(a['title'], '.pptx', user)
-            self._pptx(path, a['title'], a['slides'])
-            return {"ok": True, "file": fname, "slides": len(a['slides']), "_file": self._meta(fid)}
+            prev = self._pptx(path, a['title'], a['slides'], user)
+            return {"ok": True, "file": fname, "slides": len(a['slides']), "_file": self._meta(fid, prev)}
         if name == 'make_chart_image':
             path, fid, fname = self._new_file(a['title'], '.png', user)
             self._png(path, a)
-            return {"ok": True, "file": fname, "_file": self._meta(fid)}
+            return {"ok": True, "file": fname, "_file": self._meta(fid, {"type": "image"})}
         return {"error": f"Unknown tool {name}"}
 
     # ── files ───────────────────────────────────────────────────────────────
@@ -407,14 +426,17 @@ class Assistant:
         self.files[fid] = {"path": path, "name": fname, "user": user, "t": time.time()}
         return path, fid, fname
 
-    def _meta(self, fid):
-        f = self.files[fid]; return {"id": fid, "name": f['name'], "kind": f['name'].rsplit('.', 1)[-1]}
+    def _meta(self, fid, preview=None):
+        f = self.files[fid]; m = {"id": fid, "name": f['name'], "kind": f['name'].rsplit('.', 1)[-1]}
+        if preview: m['preview'] = preview
+        return m
 
     def _gc(self):
         now = time.time()
         for k in [k for k, v in _conversations.items() if now - v['t'] > 6 * 3600]: _conversations.pop(k, None)
         for k in [k for k, v in self.files.items() if now - v['t'] > 6 * 3600]:
-            try: os.remove(self.files[k]['path'])
+            try:
+                if not self.files[k].get('keep'): os.remove(self.files[k]['path'])   # shared deck pictures stay cached
             except Exception: pass
             self.files.pop(k, None)
 
@@ -456,10 +478,27 @@ class Assistant:
                 ws.insert_chart(2, len(cols) + 1, ch)
         wb.close()
 
-    def _pptx(self, path, title, slides):
+    def _pptx(self, path, title, slides, user=''):
+        """Builds the deck; returns preview data (the final slide list) for the chat's slide viewer."""
         from ppt_builder import build_deck
         o = getattr(_tl, 'ppt', None) or {}
-        build_deck(path, title, slides, o.get('theme', 'airtel'), o.get('images', 'none'))
+        theme = o.get('theme', 'airtel')
+        built, imgs = build_deck(path, title, slides, theme, o.get('images', 'none'))
+        pics = {}
+        for slot, p in (imgs or {}).items():       # pictures are served through the same per-user file endpoint
+            if p and os.path.exists(p):
+                fid = uuid.uuid4().hex
+                self.files[fid] = {"path": p, "name": f'{slot}{os.path.splitext(p)[1]}', "user": user, "t": time.time(), "keep": True}
+                pics[slot] = fid
+        keys = ('kind', 'title', 'subtitle', 'kpis', 'stats', 'points', 'value', 'label', 'text', 'chart_type', 'categories',
+                'series', 'insights', 'columns', 'rows', 'bullets')
+        out = []
+        for s in built:
+            x = {k: s[k] for k in keys if k in s}
+            if 'rows' in x: x['rows'] = [[None if v is None else (v if isinstance(v, (int, float)) else str(v)) for v in r] for r in x['rows'][:13]]
+            if 'categories' in x: x['categories'] = [str(c) for c in x['categories'][:30]]
+            out.append(x)
+        return {"type": "slides", "theme": theme, "slides": out, "pics": pics}
 
     def _png(self, path, a):
         import matplotlib; matplotlib.use('Agg')
