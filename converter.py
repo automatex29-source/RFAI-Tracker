@@ -547,6 +547,58 @@ def _dedup_df(df):
     keep_all = np.concatenate([keep_named, blank_idx]) if len(blank_idx) else keep_named
     return df.iloc[keep_all].reset_index(drop=True)
 
+_PD3 = int(pd.__version__.split('.')[0]) >= 3   # pandas 3: text columns are Arrow-backed
+
+def _arrow_to_df(tbl, blanks_last=False):
+    """Arrow table -> pandas with Categorical strings, one column at a time so only one
+    column is ever held twice (Table.unify_dictionaries + to_pandas on the whole table
+    briefly needed ~2x the data, which crashed the 512 MB server on big uploads).
+    blanks_last: rows without an SR# go to the end (the order _dedup_df gives)."""
+    import pyarrow.compute as pc
+    order = None
+    if blanks_last and 'srNo' in tbl.column_names:
+        sr = tbl.column('srNo')
+        if pa.types.is_dictionary(sr.type): sr = sr.cast(sr.type.value_type)
+        blank = pc.fill_null(pc.equal(sr, ''), True).to_numpy(zero_copy_only=False); del sr
+        if blank.any():
+            order = pa.array(np.concatenate([np.nonzero(~blank)[0], np.nonzero(blank)[0]]))
+        del blank
+    cols = {}
+    for name in list(tbl.column_names):
+        c = tbl.column(name)
+        if order is not None: c = c.take(order)
+        if pa.types.is_dictionary(c.type) and _PD3:
+            c = pa.table({name: c}).unify_dictionaries().column(name)
+            if sum(len(x.dictionary) for x in c.chunks[:1]) > 0.5 * max(len(c), 1):
+                # nearly every value different (SR#, site ID): compact Arrow-backed text
+                # needs a fraction of a Categorical, whose categories are Python strings
+                cols[name] = c.cast(c.type.value_type).to_pandas(); del c
+                tbl = tbl.drop_columns([name]); pa.default_memory_pool().release_unused()
+                continue
+        if pa.types.is_dictionary(c.type):
+            c = pa.table({name: c}).unify_dictionaries().column(name).combine_chunks()
+            codes = pc.fill_null(c.indices, -1).to_numpy(zero_copy_only=False).astype(np.int32)
+            cols[name] = pd.Categorical.from_codes(codes, categories=pd.Index(c.dictionary.to_pylist(), dtype=object)) \
+                         if len(c.dictionary) else pd.Categorical([None] * len(codes))
+        elif pa.types.is_string(c.type) or pa.types.is_large_string(c.type):
+            cols[name] = pd.Categorical(c.to_pandas())
+        else:
+            cols[name] = c.to_pandas()
+        del c
+        tbl = tbl.drop_columns([name]); pa.default_memory_pool().release_unused()
+    return pd.DataFrame(cols)
+
+def _compact_dicts(t):
+    """After take(), dictionary columns still carry the whole file's dictionary (e.g. every
+    SR# of the file); rebuild them from the kept rows only."""
+    import pyarrow.compute as pc
+    t = t.combine_chunks(); cols = []
+    for c in t.columns:
+        if pa.types.is_dictionary(c.type):
+            c = pc.dictionary_encode(c.cast(c.type.value_type))
+        cols.append(c)
+    return pa.table(cols, names=t.column_names)
+
 def _dedup_keys(tbl):
     """Per file: a 64-bit hash of each srNo, its -priority and whether SR# is blank.
     About 10 bytes a row, so even millions of rows need little memory."""
@@ -755,19 +807,23 @@ def _process_files(file_infos, source='website upload'):
     _job.note(f'All done in {time.time()-_job.t0:.1f}s')
     _job.running=False
 
+_compact_ready = {}   # rfai_dedup.parquet.tmp written by _build_caches, if any
+
 def _compact_cache():
     """Replace the per-chunk upload files with ONE deduplicated, strongly compressed
     Parquet file (one row per SR, only the columns the tool uses). This is what is saved
     to cloud storage, so stored data stays far smaller than the Excel/CSV it came from."""
     df = _df_full_cache
+    ready = _compact_ready.pop('path', None)
     if df is None or not len(df): return
     try:
         old = list(_cache_dir.glob('*.parquet'))
         before = sum(f.stat().st_size for f in old)
         out = _cache_dir / 'rfai_dedup.parquet'; tmp = str(out) + '.tmp'
-        cols = [c for c in df.columns if c in OUT]
-        pq.write_table(pa.Table.from_pandas(df, columns=cols, preserve_index=False), tmp,
-                       compression='zstd', compression_level=9, use_dictionary=True)
+        if not (ready and Path(ready).exists() and str(ready) == tmp):
+            cols = [c for c in df.columns if c in OUT]
+            pq.write_table(pa.Table.from_pandas(df, columns=cols, preserve_index=False), tmp,
+                           compression='zstd', compression_level=9, use_dictionary=True)
         for f in old: f.unlink()
         os.replace(tmp, out)
         after = out.stat().st_size
@@ -820,25 +876,38 @@ def _build_caches():
                             if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type)]
                 t = pq.read_table(str(f), read_dictionary=str_cols)
                 if '_ord' in t.column_names: t = t.drop_columns(['_ord'])
-                if need_dedup and keep is not None: t = t.take(pa.array(sel)).combine_chunks()
+                if need_dedup and keep is not None: t = _compact_dicts(t.take(pa.array(sel)))
                 tables.append(t)
             except Exception as e: log.warning(f"  Skipping {f.name}: {e}")
             finally: start += n_f
         if not tables:
             log.error("  No parquet files readable"); return
         tbl = pa.concat_tables(tables, promote_options='default'); del tables
-        tbl = tbl.unify_dictionaries()
-        if need_dedup and keep is not None:
-            # same row order as before: SRs first (by position), rows without SR# last
-            sr = tbl.column('srNo').to_pandas() if 'srNo' in tbl.column_names else None
-            if sr is not None:
-                blank = sr.isna().to_numpy() | (sr.astype(object) == '').to_numpy()
-                if blank.any():
-                    tbl = tbl.take(pa.array(np.concatenate([np.where(~blank)[0], np.where(blank)[0]])))
-                del sr
-        gc.collect(); pa.default_memory_pool().release_unused()
-        df = tbl.to_pandas(strings_to_categorical=True, self_destruct=True); del tbl
-        gc.collect(); pa.default_memory_pool().release_unused()
+        if need_dedup:
+            # write the small stored copy now, straight from Arrow (doing it later from
+            # pandas needs a second full copy in memory)
+            try:
+                tmp = _cache_dir / 'rfai_dedup.parquet.tmp'
+                import pyarrow.compute as pc
+                sub = tbl.select([c for c in tbl.column_names if c in OUT])
+                with pq.ParquetWriter(str(tmp), sub.schema, compression='zstd',
+                                      compression_level=9, use_dictionary=True) as w:
+                    blanks = []                  # rows without SR# last, like the pandas copy
+                    for b in sub.to_batches(max_chunksize=50_000):
+                        if 'srNo' in b.schema.names:
+                            sr = b.column('srNo')
+                            if pa.types.is_dictionary(sr.type): sr = sr.cast(sr.type.value_type)
+                            bl = pc.fill_null(pc.equal(sr, ''), True)
+                            if pc.any(bl).as_py():
+                                blanks.append(b.filter(bl)); b = b.filter(pc.invert(bl))
+                        w.write_batch(b)
+                    for b in blanks: w.write_batch(b)
+                del sub
+                _compact_ready['path'] = tmp
+            except Exception as e:
+                log.warning(f"  Early compact skipped: {e}")
+        df = _arrow_to_df(tbl, blanks_last=need_dedup and keep is not None); del tbl
+        _trim()
 
         df = _optimise_df(df)
         _df_full_cache = df
