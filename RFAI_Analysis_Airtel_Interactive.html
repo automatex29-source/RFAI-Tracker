@@ -9410,18 +9410,24 @@ async function _plan(headers){
 }
 // Output sink: rows are gzipped WHILE the file is read, so a big file never sits in
 // memory as text (that is what made huge uploads hang at "Preparing…")
-function _gzSink(){
+function _gzSink(nogz){
   const enc=new TextEncoder(); let buf=[], size=0;
-  if(typeof CompressionStream==='undefined'){
+  if(nogz||typeof CompressionStream==='undefined'){
     const parts=[];
     return {push(s){parts.push(s);}, async flush(){}, async done(){ return {blob:new Blob(parts,{type:'text/csv'}),gz:false}; }};
   }
-  const cs=new CompressionStream('gzip'), w=cs.writable.getWriter();
-  const out=new Response(cs.readable).blob();
+  const cs=new CompressionStream('gzip'), w=cs.writable.getWriter(), r=cs.readable.getReader(), chunks=[];
+  // read the compressed bytes ourselves (Response(...).blob() fails in some Chrome builds
+  // with "Failed to fetch")
+  let rdErr=null;
+  const drain=(async()=>{ try{ for(;;){ const {value,done}=await r.read(); if(done) break; chunks.push(value); } }
+                           catch(e){ rdErr=e; } })();
   return {
     push(s){ buf.push(s); size+=s.length; },
-    async flush(force){ if(!buf.length||(!force&&size<4e6)) return; const t=buf.join(''); buf=[]; size=0; await w.ready; await w.write(enc.encode(t)); },
-    async done(){ await this.flush(true); await w.close(); return {blob:await out,gz:true}; }
+    async flush(force){ if(rdErr) throw rdErr; if(!buf.length||(!force&&size<4e6)) return;
+      const t=buf.join(''); buf=[]; size=0; await w.ready; await w.write(enc.encode(t)); },
+    async done(){ await this.flush(true); await w.close(); await drain; if(rdErr) throw rdErr;
+      return {blob:new Blob(chunks,{type:'application/gzip'}),gz:true}; }
   };
 }
 // cheap 53-bit fingerprint of a row (a Set of numbers needs far less memory than of strings)
@@ -9432,7 +9438,7 @@ function _rowHash(s){ let h1=0xdeadbeef, h2=0x41c6ce57;
   return 4294967296*(2097151&h2)+(h1>>>0); }
 // CSV: streamed (never the whole file in memory), columns picked, duplicates dropped,
 // gzipped on the fly
-async function _slimCsv(f){
+async function _slimCsv(f,nogz){
   const head=new Uint8Array(await f.slice(0,65536).arrayBuffer());
   let enc='utf-8'; try{ new TextDecoder('utf-8',{fatal:true}).decode(head.subarray(0,Math.max(0,head.length-4))); }catch(e){ enc='windows-1252'; }
   const first=new TextDecoder(enc).decode(head).split(/\r?\n/)[0].replace(/^﻿/,'');
@@ -9442,7 +9448,7 @@ async function _slimCsv(f){
   if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, sending the whole file'); return null; }
   const keep=plan.keep;
   _ulog(f.name+': using '+keep.length+' of '+hdr.length+' columns');
-  const sink=_gzSink(); sink.push(keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n');
+  const sink=_gzSink(nogz); sink.push(keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n');
   const seen=new Set();
   let rows=0, dups=0, carry='', done=0, lastUi=0, header=true;
   const emit=cells=>{
@@ -9487,7 +9493,7 @@ async function _slimCsv(f){
   return sink.done();
 }
 // Excel: read in the browser, columns picked, duplicates dropped
-async function _slimExcel(f){
+async function _slimExcel(f,nogz){
   if(typeof XLSX==='undefined') return null;
   const wb=XLSX.read(await f.arrayBuffer(),{type:'array',dense:true,cellText:false,cellDates:false,cellHTML:false,cellFormula:false});
   let best=wb.SheetNames[0],bestSc=-1;
@@ -9501,7 +9507,7 @@ async function _slimExcel(f){
   const hdr=aoa[0].map(x=>String(x==null?'':x));
   const plan=await _plan(hdr);
   if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, converting the whole sheet'); return null; }
-  const keep=plan.keep, seen=new Set(), sink=_gzSink(); let dups=0;
+  const keep=plan.keep, seen=new Set(), sink=_gzSink(nogz); let dups=0;
   sink.push(keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n');
   for(let r=1;r<aoa.length;r++){ const row=aoa[r]; const out=keep.map(i=>_csvEsc(row[i])).join(',');
     const h=_rowHash(out); if(seen.has(h)){ dups++; continue; } seen.add(h); sink.push(out+'\n');
@@ -9529,10 +9535,13 @@ async function _uploadToPython(files){
     await new Promise(r=>setTimeout(r,30));
     const t0=performance.now();
     let parts=null;
-    try{
-      if(/\.csv$/i.test(f.name)&&f.stream&&typeof TextDecoderStream!=='undefined') parts=await _slimCsv(f);
-      else if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)&&!(_phone&&f.size>8e6)) parts=await _slimExcel(f);
-    }catch(e){ console.warn('[upload] browser preparation failed',e); _ulog(f.name+': preparation failed ('+e.message+'), sending the file as it is','er'); parts=null; }
+    const slim=nogz=>(/\.csv$/i.test(f.name)&&f.stream&&typeof TextDecoderStream!=='undefined')?_slimCsv(f,nogz)
+      :(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)&&!(_phone&&f.size>8e6))?_slimExcel(f,nogz):null;
+    try{ parts=await slim(false); }
+    catch(e){ console.warn('[upload] browser preparation failed',e);
+      _ulog(f.name+': compressing failed ('+(e.name||'')+' '+e.message+'), trying again without compressing','er');
+      try{ parts=await slim(true); }
+      catch(e2){ console.warn('[upload] retry failed',e2); _ulog(f.name+': preparation failed again ('+(e2.name||'')+' '+e2.message+'), sending the file as it is','er'); parts=null; } }
     if(parts){
       const {blob,gz}=parts;
       const name=f.name.replace(/\.(csv|xlsx|xlsm|xlsb|xls)$/i,'')+'.csv'+(gz?'.gz':'');
