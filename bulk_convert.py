@@ -122,9 +122,9 @@ def dedup(raw_dir, out_file, mem_limit):
 
 def _s3_region():
     """R2 uses 'auto'; Backblaze B2 needs the region from its endpoint."""
-    if os.environ.get('S3_REGION'): return os.environ['S3_REGION']
     m = re.search(r's3\.([a-z0-9-]+)\.backblazeb2\.com', os.environ.get('S3_ENDPOINT', ''))
-    return m.group(1) if m else 'auto'
+    if m: return m.group(1)             # the endpoint's region always wins for B2
+    return os.environ.get('S3_REGION') or 'auto'
 
 def upload(path):
     import boto3
