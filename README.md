@@ -110,6 +110,12 @@ BULK_CONVERT.bat  D:\RFAI_raw_files
 Set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` in the Render service's
 **Environment** tab.
 
+**Stored data is small.** Every upload (website or bucket) is converted to Parquet, reduced to the
+columns the tool uses, deduplicated to one row per SR and saved as a single `rfai_dedup.parquet`
+(zstd compression), usually 95–99% smaller than the Excel/CSV. The upload message shows the saving.
+On Backblaze B2 set the bucket's **Lifecycle Settings** to *Keep only the last version of the file*,
+otherwise old copies keep using the free 10 GB.
+
 **Only the latest data is kept.** Every new upload (website or bucket) replaces the previous data.
 Older Excel/CSV files in the bucket are deleted automatically. The page header shows what is loaded,
 e.g. `24,428 SRs · Book2.xlsx · 13-Oct-2026 14:05`.

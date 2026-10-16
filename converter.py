@@ -403,7 +403,7 @@ def to_pq(rows, path):
             arrays[col] = pa.array([v if isinstance(v,int) else -1 for v in vals], type=pa.int16())
         else:
             arrays[col] = pa.array([str(v) if v else '' for v in vals], type=pa.string())
-    pq.write_table(pa.table(arrays), str(path), compression='snappy', use_dictionary=True)
+    pq.write_table(pa.table(arrays), str(path), compression='zstd', use_dictionary=True)
 
 # ── Parquet reader — ALWAYS numpy-backed, never PyArrow-backed ─────────────
 def _read_pq(path, columns=None):
@@ -596,9 +596,11 @@ def _process_files(file_infos, source='website upload'):
     _stage_dir.mkdir(parents=True, exist_ok=True)
     for f in _stage_dir.glob("*.parquet"): f.unlink()
     _job.cache_dir=_cache_dir; _job.total_files=len(file_infos)
-    grand=0; kept=0; errors=[]
+    grand=0; kept=0; errors=[]; raw=0
 
     for fi,(fname,content) in enumerate(file_infos):
+        try: raw += os.path.getsize(content)
+        except Exception: pass
         _job.current_file=fname
         _job.progress=int(fi/len(file_infos)*90)
         _job.message=f'[{fi+1}/{len(file_infos)}] {fname}'
@@ -658,14 +660,42 @@ def _process_files(file_infos, source='website upload'):
     for f in _cache_dir.glob("*.parquet"): f.unlink()
     for f in _stage_dir.glob("*.parquet"): os.replace(f, _cache_dir / f.name)
     _build_caches()                      # finish BEFORE reporting done, so the page
+    small = _compact_cache()             # one small deduplicated file is what gets stored
     _set_meta([n for n, _ in file_infos], source)
     _job.progress=100; _job.done=True    # reads the ready cache instead of redoing it
     _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
     if errors: _job.message += ' (skipped: ' + ' | '.join(errors) + ')'
+    if small and raw:
+        mb = lambda b: f'{b/1e9:.2f} GB' if b >= 1e9 else f'{b/1e6:.1f} MB'
+        cut = max(0.0, 1 - small / raw)
+        _job.message += f' · saved as {mb(small)} ({cut:.1%} smaller' + (f', {raw / small:,.0f}x' if small else '') + f' than the {mb(raw)} uploaded)'
     log.info(_job.message)
     if S3_BUCKET: save_to_storage()
     if SQL_ENABLED: save_to_sql()
     _job.running=False
+
+def _compact_cache():
+    """Replace the per-chunk upload files with ONE deduplicated, strongly compressed
+    Parquet file (one row per SR, only the columns the tool uses). This is what is saved
+    to cloud storage, so stored data stays far smaller than the Excel/CSV it came from."""
+    df = _df_full_cache
+    if df is None or not len(df): return
+    try:
+        old = list(_cache_dir.glob('*.parquet'))
+        before = sum(f.stat().st_size for f in old)
+        out = _cache_dir / 'rfai_dedup.parquet'; tmp = str(out) + '.tmp'
+        cols = [c for c in df.columns if c in OUT]
+        pq.write_table(pa.Table.from_pandas(df, columns=cols, preserve_index=False), tmp,
+                       compression='zstd', compression_level=9, use_dictionary=True)
+        for f in old: f.unlink()
+        os.replace(tmp, out)
+        after = out.stat().st_size
+        log.info(f"  Compacted {len(old)} file(s), {before/1e6:.1f} MB -> 1 file, {after/1e6:.1f} MB ({len(df):,} SRs)")
+        _storage_status['size'] = f'{after/1e6:.1f} MB for {len(df):,} SRs'
+        return after
+    except Exception as e:
+        log.warning(f"  Compacting skipped: {e}")   # the chunk files still work
+        return None
 
 # ── In-memory cache builder — v4 PyArrow-safe ─────────────────────────────
 def _build_caches():
