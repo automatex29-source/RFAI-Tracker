@@ -9405,8 +9405,20 @@ function _splitCsvRecord(rec,d){
   }
 }
 async function _plan(headers){
-  try{ const r=await fetch(_B+'/api/upload-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({headers})});
-    return r.ok?await r.json():null; }catch(e){ return null; }
+  // the server says which columns the tool uses; retried, because a sleeping or
+  // restarting free server may miss the first try
+  for(let a=0;a<4;a++){
+    try{ const r=await fetch(_B+'/api/upload-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({headers})});
+      if(r.ok) return await r.json(); }catch(e){}
+    await new Promise(r=>setTimeout(r,2000*(a+1)));
+  }
+  return null;
+}
+// no usable answer → why, for the log; a file without an RFAI date column is skipped
+function _planIssue(plan,hdr){
+  if(!plan) return {err:'the server did not answer the column check'};
+  if(!plan.rfai||!plan.keep.length) return {skip:'no RFAI date column found (first columns: '+hdr.slice(0,8).join(', ')+'…)'};
+  return null;
 }
 // Output sink: rows are gzipped WHILE the file is read, so a big file never sits in
 // memory as text (that is what made huge uploads hang at "Preparing…")
@@ -9445,7 +9457,7 @@ async function _slimCsv(f,nogz){
   const d=[',','\t','|',';'].find(x=>first.includes(x))||',';
   const hdr=(first.includes('"')?_splitCsvRecord(first,d):null)||first.split(d);
   const plan=await _plan(hdr);
-  if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, sending the whole file'); return null; }
+  const iss=_planIssue(plan,hdr); if(iss){ if(iss.skip) return iss; throw new Error(iss.err); }
   const keep=plan.keep;
   _ulog(f.name+': using '+keep.length+' of '+hdr.length+' columns');
   const sink=_gzSink(nogz); sink.push(keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n');
@@ -9506,7 +9518,7 @@ async function _slimExcel(f,nogz){
   if(!aoa.length) return null;
   const hdr=aoa[0].map(x=>String(x==null?'':x));
   const plan=await _plan(hdr);
-  if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, converting the whole sheet'); return null; }
+  const iss=_planIssue(plan,hdr); if(iss){ if(iss.skip) return iss; throw new Error(iss.err); }
   const keep=plan.keep, seen=new Set(), sink=_gzSink(nogz); let dups=0;
   sink.push(keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n');
   for(let r=1;r<aoa.length;r++){ const row=aoa[r]; const out=keep.map(i=>_csvEsc(row[i])).join(',');
@@ -9527,7 +9539,7 @@ async function _uploadToPython(files){
   _upLog=[]; _srvLog=[]; _upT0=performance.now(); clearInterval(_upTick);
   _upTick=setInterval(()=>{ const t=document.getElementById('up-time'); if(t) t.textContent=((performance.now()-_upT0)/1000).toFixed(1)+'s'; },100);
   const _phone=matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-  const conv=[]; let rawTotal=0;
+  const conv=[], skipped=[]; let rawTotal=0;
   for(let i=0;i<files.length;i++){
     const f=files[i]; rawTotal+=f.size;
     _ulog('Selected '+f.name+' ('+_mb(f.size)+')');
@@ -9541,7 +9553,12 @@ async function _uploadToPython(files){
     catch(e){ console.warn('[upload] browser preparation failed',e);
       _ulog(f.name+': compressing failed ('+(e.name||'')+' '+e.message+'), trying again without compressing','er');
       try{ parts=await slim(true); }
-      catch(e2){ console.warn('[upload] retry failed',e2); _ulog(f.name+': preparation failed again ('+(e2.name||'')+' '+e2.message+'), sending the file as it is','er'); parts=null; } }
+      catch(e2){ console.warn('[upload] retry failed',e2); _ulog(f.name+': preparation failed again ('+(e2.name||'')+' '+e2.message+')','er'); parts=null; } }
+    if(parts&&parts.skip){ _ulog(f.name+': skipped — '+parts.skip,'er'); skipped.push(f.name); continue; }
+    if(!parts&&f.size>60e6){            // never push a huge raw file: the free server cannot take it
+      clearInterval(_upTick);
+      _showUpErr(f.name+' could not be prepared in your browser, and at '+_mb(f.size)+' it is too big to send as it is. See the processing log for the reason, and send a screenshot of it to your admin. Nothing was changed.');
+      return; }
     if(parts){
       const {blob,gz}=parts;
       const name=f.name.replace(/\.(csv|xlsx|xlsm|xlsb|xls)$/i,'')+'.csv'+(gz?'.gz':'');
@@ -9552,6 +9569,8 @@ async function _uploadToPython(files){
     } else conv.push(f);
   }
   files=conv;
+  if(!files.length){ clearInterval(_upTick); _showUpErr('None of the files has an RFAI date column, so nothing was uploaded: '+skipped.join(', ')+'. Nothing was changed.'); return; }
+  if(skipped.length) _ulog('Skipped (no RFAI date column): '+skipped.join(', '),'er');
   const sendTotal=files.reduce((a,f)=>a+f.size,0);
   if(rawTotal) _ulog('Sending '+_mb(sendTotal)+' instead of '+_mb(rawTotal)+' ('+Math.max(0,(1-sendTotal/rawTotal)*100).toFixed(1)+'% less)');
   _setProg(10,'Uploading '+files.length+' file(s)…','');
