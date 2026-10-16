@@ -9502,12 +9502,12 @@ async function _uploadToPython(files){
     let j={}; try{ j=JSON.parse(r.text); }catch(e){}
     if(!j.ok){_showUpErr(j.error||('Upload failed ('+r.status+')'));return;}
     _ulog('Upload finished in '+((performance.now()-tU)/1000).toFixed(1)+'s','ok');
-    _srvOff=(performance.now()-_upT0)/1000;
+    _srvOff=(performance.now()-_upT0)/1000; _upBoot=j.boot||'';
     _setProg(20,'Server processing '+j.count+' file(s)…','');
     _doPoll();
   }catch(e){_showUpErr('Cannot reach the server. Check your internet connection and try again.');}
 }
-let _srvOff=0;
+let _srvOff=0, _upBoot='';
 function _showUpErr(msg){
   const e=document.getElementById('up-error');if(e){e.style.display='block';e.textContent=msg;}
   const dz=document.getElementById('dropzone');if(dz){dz.style.pointerEvents='';dz.style.opacity='1';}
@@ -9523,6 +9523,9 @@ function _doPoll(){
   _pollTmr=setTimeout(async()=>{
     try{
       const r=await fetch(_B+'/api/progress');const j=await r.json();
+      if(_upBoot&&j.boot&&j.boot!==_upBoot){ clearInterval(_upTick); _upBoot='';
+        _ulog('The server restarted while processing — the upload was lost','er');
+        _showUpErr('The server restarted while processing your file (on the free Render plan this happens when the file needs more than 512 MB of memory). Nothing was saved. Try again with fewer rows per upload, or convert on your PC with BULK_CONVERT.bat and press "Reload stored data".'); return; }
       _setProg(j.progress,j.message||'Processing…',j.current_file||'');
       const k=document.getElementById('up-kept');if(k)k.textContent=(j.rows_kept||0).toLocaleString();
       const t=document.getElementById('up-total');if(t)t.textContent=(j.rows_processed||0).toLocaleString();
@@ -10170,7 +10173,7 @@ async function _loadDashboard(){
     // Only fetch summary — NO raw rows sent to browser (prevents OOM on 20L+ rows)
     const rs=await fetch(_B+'/api/summary');
     const j=await rs.json();
-    if(j.error){_showUpErr('Error: '+j.error);return;}
+    if(j.error){_showUpErr(j.error==='No data'?'No data on the server. The server may have restarted while processing (the free plan has 512 MB of memory), or cloud storage is empty. Refresh the page; if it stays empty, upload the file again.':'Error: '+j.error);return;}
 
     // allR/dedupR stay EMPTY — all computation is in Python
     // Dashboard, Financial, Mgmt all fetch pre-aggregated data from /api/dashboard

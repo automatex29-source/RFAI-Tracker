@@ -424,6 +424,16 @@ def _read_pq(path, columns=None):
             df[col] = df[col].astype(str).replace('<NA>','').replace('nan','')
     return df
 
+def _trim():
+    """Hand freed memory back to the system (glibc keeps it otherwise), so the
+    next step of a big upload starts from a low base on the 512 MB server."""
+    gc.collect()
+    try: pa.default_memory_pool().release_unused()
+    except Exception: pass
+    try:
+        import ctypes; ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except Exception: pass
+
 # ── Job state ──────────────────────────────────────────────────────────────
 class Job:
     def __init__(self): self.reset()
@@ -440,6 +450,7 @@ class Job:
         log.info(f"  {msg}")
 
 _job       = Job()
+_BOOT      = f'{os.getpid()}-{int(time.time())}'   # changes when the server restarts
 _cache_dir = Path(os.environ.get('DATA_DIR') or (SCRIPT_DIR / '_rfai_cache'))
 _dash_cache    = None
 _df_cache      = None
@@ -536,6 +547,28 @@ def _dedup_df(df):
     keep_all = np.concatenate([keep_named, blank_idx]) if len(blank_idx) else keep_named
     return df.iloc[keep_all].reset_index(drop=True)
 
+def _dedup_keys(tbl):
+    """Per file: a 64-bit hash of each srNo, its -priority and whether SR# is blank.
+    About 10 bytes a row, so even millions of rows need little memory."""
+    n = tbl.num_rows
+    sr = (tbl.column('srNo').to_pandas() if 'srNo' in tbl.column_names
+          else pd.Series([''] * n)).astype(object).fillna('').astype(str)
+    st = (tbl.column('srStatus').to_pandas().astype(object).fillna('').astype(str)
+          if 'srStatus' in tbl.column_names else pd.Series([''] * n))
+    pri = -st.map(_SP).fillna(0).to_numpy(dtype=np.int8)
+    return pd.util.hash_array(sr.to_numpy()), pri, (sr == '').to_numpy()
+
+def _dedup_keep(h, pri, blank):
+    """Row positions _dedup_df would keep (highest-priority status per srNo, first row
+    on a tie, every row without an SR#), from _dedup_keys output (pri holds -priority)."""
+    # two stable sorts instead of one lexsort: fewer big temporary arrays (512 MB server)
+    o = np.argsort(pri, kind='stable')                 # by priority, then position
+    o = o[~blank[o]]                                    # rows without SR# are all kept
+    o = o[np.argsort(h[o], kind='stable')]             # then by SR (stable keeps the above)
+    hs = h[o]; first = np.empty(len(o), dtype=bool)
+    first[:1] = True; np.not_equal(hs[1:], hs[:-1], out=first[1:]); del hs
+    return np.concatenate([o[first], np.nonzero(blank)[0]])
+
 # ── CSV reader — pandas.read_csv, no Sniffer ──────────────────────────────
 def _process_csv(path, fname: str, grand: int, kept: int, chunk_idx: int):
     with open(path, 'rb') as fh: head = fh.read(65536)
@@ -576,7 +609,7 @@ def _process_csv(path, fname: str, grand: int, kept: int, chunk_idx: int):
             for j, x in enumerate(h):
                 x = int(x)
                 if x in seen: continue
-                if len(seen) < 2_000_000: seen.add(x)     # bounded memory (~150 MB at most)
+                if len(seen) < 500_000: seen.add(x)       # bounded memory (~40 MB at most)
                 keep.append(j)
             if len(keep) < n_all:
                 _job.dups += n_all - len(keep); chunk_df = chunk_df.iloc[keep]
@@ -670,6 +703,7 @@ def _process_files(file_infos, source='website upload'):
         finally:
             try: Path(content).unlink()
             except Exception: pass
+        _trim()
         dt = max(time.time() - t_file, 0.01)
         _job.note(f'Finished {fname}: {grand-g0:,} rows in {dt:.1f}s ({(grand-g0)/dt:,.0f} rows/s), {kept-k0:,} with RFAI date')
 
@@ -697,7 +731,7 @@ def _process_files(file_infos, source='website upload'):
     _job.note('Merging duplicates to one row per SR')
     t_ = time.time()
     # success: replace the old data with the new upload
-    _df_cache=None; _df_full_cache=None; _dash_cache=None; gc.collect()
+    _df_cache=None; _df_full_cache=None; _dash_cache=None; _trim()
     for f in _cache_dir.glob("*.parquet"): f.unlink()
     for f in _stage_dir.glob("*.parquet"): os.replace(f, _cache_dir / f.name)
     _build_caches()                      # finish BEFORE reporting done, so the page
@@ -754,32 +788,63 @@ def _build_caches():
         fs = sorted(_cache_dir.glob("*.parquet")) if _cache_dir.exists() else []
         if not fs: return
         log.info(f"  Building in-memory cache from {len(fs)} parquet file(s)…")
-        tables = []
-        for f in fs:
+        # dedup (skipped for bulk_convert.py output — already one row per SR)
+        need_dedup = not all(f.name.startswith('rfai_dedup') for f in fs)
+        keep = None
+        if need_dedup:
+            # pass 1: only SR# + status (tiny) decide which row of each SR is kept,
+            # so a big upload is never held in memory in full (free server: 512 MB)
+            hs, ps, bs, sizes = [], [], [], []
+            for f in fs:
+                try:
+                    h, pr, bl = _dedup_keys(pq.read_table(str(f), columns=[
+                        c for c in ('srNo', 'srStatus') if c in pq.read_schema(str(f)).names]))
+                    hs.append(h); ps.append(pr); bs.append(bl); sizes.append(len(h))
+                except Exception as e:
+                    log.warning(f"  Skipping {f.name}: {e}"); sizes.append(0)
+            keep = _dedup_keep(np.concatenate(hs), np.concatenate(ps), np.concatenate(bs)) if hs else None
+            del hs, ps, bs; _trim()
+            if keep is not None: keep = np.sort(keep)
+        # pass 2: read each file and keep only the chosen rows
+        tables = []; start = 0
+        for i, f in enumerate(fs):
+            n_f = sizes[i] if need_dedup else 0
             try:
+                if need_dedup and keep is not None:
+                    lo, hi = np.searchsorted(keep, [start, start + n_f])
+                    sel = keep[lo:hi] - start
+                    if not len(sel): continue
                 # read strings straight into dictionary form -> pandas Categorical,
                 # never materialising millions of individual Python strings
                 str_cols = [fld.name for fld in pq.read_schema(str(f))
                             if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type)]
-                tables.append(pq.read_table(str(f), read_dictionary=str_cols))
+                t = pq.read_table(str(f), read_dictionary=str_cols)
+                if '_ord' in t.column_names: t = t.drop_columns(['_ord'])
+                if need_dedup and keep is not None: t = t.take(pa.array(sel)).combine_chunks()
+                tables.append(t)
             except Exception as e: log.warning(f"  Skipping {f.name}: {e}")
+            finally: start += n_f
         if not tables:
             log.error("  No parquet files readable"); return
         tbl = pa.concat_tables(tables, promote_options='default'); del tables
-        if '_ord' in tbl.column_names: tbl = tbl.drop_columns(['_ord'])
         tbl = tbl.unify_dictionaries()
+        if need_dedup and keep is not None:
+            # same row order as before: SRs first (by position), rows without SR# last
+            sr = tbl.column('srNo').to_pandas() if 'srNo' in tbl.column_names else None
+            if sr is not None:
+                blank = sr.isna().to_numpy() | (sr.astype(object) == '').to_numpy()
+                if blank.any():
+                    tbl = tbl.take(pa.array(np.concatenate([np.where(~blank)[0], np.where(blank)[0]])))
+                del sr
+        gc.collect(); pa.default_memory_pool().release_unused()
         df = tbl.to_pandas(strings_to_categorical=True, self_destruct=True); del tbl
         gc.collect(); pa.default_memory_pool().release_unused()
-
-        # dedup (skipped for bulk_convert.py output — already one row per SR)
-        if not all(f.name.startswith('rfai_dedup') for f in fs):
-            df = _dedup_df(df); gc.collect()
 
         df = _optimise_df(df)
         _df_full_cache = df
         _df_cache = df[[c for c in _df_cache_cols if c in df.columns]]
         _dash_cache = _compute_dash_aggs(_df_cache)
-        gc.collect(); pa.default_memory_pool().release_unused()
+        _trim()
         log.info(f"  Cache ready — {len(df):,} unique SRs | {len(df.columns)} cols")
 
     except Exception as e:
@@ -1742,7 +1807,7 @@ async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(..
         file_infos.append((f.filename,str(dst)))
         _job.note(f'Received {f.filename} ({os.path.getsize(dst)/1e6:,.1f} MB)')
     background_tasks.add_task(process_files_bg,file_infos)
-    return {"ok":True,"files":[f[0] for f in file_infos],"count":len(file_infos)}
+    return {"ok":True,"files":[f[0] for f in file_infos],"count":len(file_infos),"boot":_BOOT}
 
 @app.get("/api/progress")
 def progress():
@@ -1750,7 +1815,8 @@ def progress():
             "progress":_job.progress,"message":_job.message,
             "current_file":_job.current_file,"total_files":_job.total_files,
             "rows_processed":_job.rows_processed,"rows_kept":_job.rows_kept,
-            "dups":_job.dups,"elapsed":round(time.time()-_job.t0,1),"log":_job.log[-80:]}
+            "dups":_job.dups,"elapsed":round(time.time()-_job.t0,1),"log":_job.log[-80:],
+            "boot":_BOOT}
 
 @app.post("/api/upload-plan")
 async def upload_plan(request:Request):
