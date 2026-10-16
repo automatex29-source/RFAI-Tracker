@@ -1185,7 +1185,8 @@ button[onclick="exportMgmt()"] svg,button[onclick="exportDashboard()"] svg{strok
       <div style="height:8px;background:#e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:5px">
         <div id="up-bar" style="height:100%;background:linear-gradient(90deg,#dc2626,#f97316);border-radius:8px;transition:width .3s;width:0%"></div>
       </div>
-      <div style="font-size:11.5px;color:#64748b;margin-bottom:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="up-file"></div>
+      <div style="font-size:11.5px;color:#64748b;margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="up-file"></div>
+      <div class="up-logw"><div class="up-logh"><b>Processing log</b><span id="up-time">0.0s</span></div><div id="up-log" class="up-log" aria-live="polite"></div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div style="padding:12px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;text-align:center">
           <div style="font-size:20px;font-weight:800;color:#16a34a" id="up-kept">0</div>
@@ -9368,34 +9369,145 @@ async function _excelToCsvFile(f){
   return new File([csv],f.name.replace(/\.(xlsx|xlsm|xlsb|xls)$/i,'')+'.csv',{type:'text/csv'});
 }
 
+/* ── Fast upload: in the browser keep only the columns the tool reads, drop exact duplicate
+   rows and gzip the result, so a fraction of the file travels over the network ── */
+let _upLog=[], _upT0=0, _upTick=null, _srvLog=[];
+function _ulog(m,cls){ _upLog.push({t:(performance.now()-_upT0)/1000,m,c:cls||'b'}); _renderUpLog(); }
+function _renderUpLog(){
+  const el=document.getElementById('up-log'); if(!el) return;
+  const all=_upLog.map(x=>({t:x.t,m:'Browser · '+x.m,c:x.c})).concat(_srvLog.map(x=>({t:x.t+(x.off||0),m:'Server · '+x.m,c:/done|Saved|Compressed|ready/i.test(x.m)?'ok':/fail|error/i.test(x.m)?'er':''})));
+  all.sort((a,b)=>a.t-b.t);
+  el.innerHTML=all.map(x=>'<div class="'+x.c+'"><i>'+x.t.toFixed(1)+'s</i><span>'+_hmEsc(x.m)+'</span></div>').join('');
+  el.scrollTop=el.scrollHeight;
+}
+const _mb=b=>b>=1e9?(b/1e9).toFixed(2)+' GB':(b/1e6).toFixed(1)+' MB';
+function _csvEsc(v){ v=v==null?'':String(v); return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function _splitCsvRecord(rec,d){              // full CSV rules for a record that contains quotes
+  const out=[]; let f='', q=false;
+  for(let i=0;i<rec.length;i++){ const c=rec[i];
+    if(q){ if(c==='"'){ if(rec[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q=true; else if(c===d){ out.push(f); f=''; } else if(c!=='\r') f+=c; }
+  out.push(f); return out;
+}
+async function _plan(headers){
+  try{ const r=await fetch(_B+'/api/upload-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({headers})});
+    return r.ok?await r.json():null; }catch(e){ return null; }
+}
+async function _gzip(parts){
+  const blob=new Blob(parts,{type:'text/csv'});
+  if(typeof CompressionStream==='undefined') return {blob,gz:false};
+  const gz=await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  return {blob:gz,gz:true};
+}
+// CSV: streamed (never the whole file in memory), columns picked, duplicates dropped
+async function _slimCsv(f){
+  const head=new Uint8Array(await f.slice(0,65536).arrayBuffer());
+  let enc='utf-8'; try{ new TextDecoder('utf-8',{fatal:true}).decode(head.subarray(0,Math.max(0,head.length-4))); }catch(e){ enc='windows-1252'; }
+  const first=new TextDecoder(enc).decode(head).split(/\r?\n/)[0];
+  const d=[',','\t','|',';'].find(x=>first.includes(x))||',';
+  const hdr=first.includes('"')?_splitCsvRecord(first,d):first.split(d);
+  const plan=await _plan(hdr);
+  if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, sending the whole file'); return null; }
+  const keep=plan.keep;
+  _ulog(f.name+': using '+keep.length+' of '+hdr.length+' columns');
+  const seen=new Set(), parts=[keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n'];
+  let rows=0, dups=0, carry='', rec='', done=0, lastUi=0, header=true;
+  const take=line=>{
+    if(rec){ rec+='\n'+line; } else rec=line;
+    if((rec.split('"').length-1)%2) return;          // quoted field continues on the next line
+    const r=rec; rec='';
+    if(header){ header=false; return; }
+    if(!r.trim()) return;
+    const cells=r.includes('"')?_splitCsvRecord(r,d):r.split(d);
+    const out=keep.map(i=>_csvEsc((cells[i]||'').replace(/\r$/,''))).join(',');
+    rows++;
+    if(seen.has(out)){ dups++; return; }
+    seen.add(out); parts.push(out+'\n');
+  };
+  const reader=f.stream().pipeThrough(new TextDecoderStream(enc)).getReader();
+  for(;;){ const {value,done:end}=await reader.read(); if(end) break;
+    done+=value.length; carry+=value; const lines=carry.split('\n'); carry=lines.pop();
+    for(const l of lines) take(l);
+    if(performance.now()-lastUi>400){ lastUi=performance.now(); _setProg(3+Math.min(6,Math.round(done/f.size*6)),'Preparing '+f.name+' in your browser…',rows.toLocaleString()+' rows · '+_mb(Math.min(done,f.size))+' of '+_mb(f.size)); await new Promise(r=>setTimeout(r,0)); }
+  }
+  if(carry) take(carry);
+  _ulog(f.name+': '+rows.toLocaleString()+' rows, '+dups.toLocaleString()+' exact duplicates dropped');
+  return parts;
+}
+// Excel: read in the browser, columns picked, duplicates dropped
+async function _slimExcel(f){
+  if(typeof XLSX==='undefined') return null;
+  const wb=XLSX.read(await f.arrayBuffer(),{type:'array',dense:true,cellText:false,cellDates:false,cellHTML:false,cellFormula:false});
+  let best=wb.SheetNames[0],bestSc=-1;
+  if(wb.SheetNames.length>1) wb.SheetNames.forEach(n=>{
+    const h=(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,range:0,blankrows:false})[0])||[];
+    const sc=h.filter(c=>c&&_SHEET_KEYS_JS.some(k=>String(c).toUpperCase().includes(k))).length;
+    if(sc>bestSc){bestSc=sc;best=n;}
+  });
+  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[best],{header:1,raw:true,defval:'',blankrows:false});
+  if(!aoa.length) return null;
+  const hdr=aoa[0].map(x=>String(x==null?'':x));
+  const plan=await _plan(hdr);
+  if(!plan||!plan.rfai||!plan.keep.length){ _ulog(f.name+': columns not recognised, converting the whole sheet'); return null; }
+  const keep=plan.keep, seen=new Set(), parts=[keep.map(i=>_csvEsc(hdr[i])).join(',')+'\n']; let dups=0;
+  for(let r=1;r<aoa.length;r++){ const row=aoa[r]; const out=keep.map(i=>_csvEsc(row[i])).join(',');
+    if(seen.has(out)){ dups++; continue; } seen.add(out); parts.push(out+'\n'); }
+  _ulog(f.name+' (sheet "'+best+'"): '+(aoa.length-1).toLocaleString()+' rows, using '+keep.length+' of '+hdr.length+' columns, '+dups.toLocaleString()+' duplicates dropped');
+  return parts;
+}
+function _xhrUpload(fd,onp){
+  return new Promise((res,rej)=>{ const x=new XMLHttpRequest(); x.open('POST',_B+'/api/upload');
+    x.upload.onprogress=e=>{ if(e.lengthComputable) onp(e.loaded,e.total); };
+    x.onload=()=>res({status:x.status,text:x.responseText}); x.onerror=()=>rej(new Error('network')); x.send(fd); });
+}
 async function _uploadToPython(files){
   const prog=document.getElementById('up-progress'),err=document.getElementById('up-error'),dz=document.getElementById('dropzone');
   if(prog)prog.style.display='block';if(err)err.style.display='none';
   if(dz){dz.style.pointerEvents='none';dz.style.opacity='0.5';}
-  const conv=[];
+  _upLog=[]; _srvLog=[]; _upT0=performance.now(); clearInterval(_upTick);
+  _upTick=setInterval(()=>{ const t=document.getElementById('up-time'); if(t) t.textContent=((performance.now()-_upT0)/1000).toFixed(1)+'s'; },100);
+  const _phone=matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  const conv=[]; let rawTotal=0;
   for(let i=0;i<files.length;i++){
-    const f=files[i];
-    // phones have little memory: big Excel files go to the server as they are (it streams them)
-    const _phone=matchMedia('(pointer:coarse)').matches||/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
-    if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name) && !(_phone && f.size>8e6)){
-      _setProg(3+Math.round(i/files.length*7),'Preparing '+f.name+' in your browser…','');
-      await new Promise(r=>setTimeout(r,30));               // let the progress text paint
-      try{ conv.push(await _excelToCsvFile(f)); }
-      catch(e){ console.warn('[upload] browser conversion failed, sending original',e); conv.push(f); }
+    const f=files[i]; rawTotal+=f.size;
+    _ulog('Selected '+f.name+' ('+_mb(f.size)+')');
+    _setProg(2+Math.round(i/files.length*8),'Preparing '+f.name+' in your browser…','');
+    await new Promise(r=>setTimeout(r,30));
+    const t0=performance.now();
+    let parts=null;
+    try{
+      if(/\.csv$/i.test(f.name)&&f.stream&&typeof TextDecoderStream!=='undefined') parts=await _slimCsv(f);
+      else if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)&&!(_phone&&f.size>8e6)) parts=await _slimExcel(f);
+    }catch(e){ console.warn('[upload] browser preparation failed',e); _ulog(f.name+': preparation failed ('+e.message+'), sending the file as it is','er'); parts=null; }
+    if(parts){
+      const {blob,gz}=await _gzip(parts);
+      const name=f.name.replace(/\.(csv|xlsx|xlsm|xlsb|xls)$/i,'')+'.csv'+(gz?'.gz':'');
+      conv.push(new File([blob],name,{type:gz?'application/gzip':'text/csv'}));
+      _ulog(f.name+': '+_mb(f.size)+' → '+_mb(blob.size)+(gz?' (gzip)':'')+' in '+((performance.now()-t0)/1000).toFixed(1)+'s','ok');
+    } else if(/\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name)&&!(_phone&&f.size>8e6)){
+      try{ conv.push(await _excelToCsvFile(f)); }catch(e){ conv.push(f); }
     } else conv.push(f);
   }
   files=conv;
+  const sendTotal=files.reduce((a,f)=>a+f.size,0);
+  if(rawTotal) _ulog('Sending '+_mb(sendTotal)+' instead of '+_mb(rawTotal)+' ('+Math.max(0,(1-sendTotal/rawTotal)*100).toFixed(1)+'% less)');
   _setProg(10,'Uploading '+files.length+' file(s)…','');
   try{
     const fd=new FormData();files.forEach(f=>fd.append('files',f));
-    const r=await fetch(_B+'/api/upload',{method:'POST',body:fd});
-    if(r.status===401||r.status===403){let m='Only an admin can upload data.';try{m=(await r.json()).error||m;}catch(e){}_showUpErr(m);return;}
-    const j=await r.json();
-    if(!j.ok){_showUpErr(j.error||'Upload failed');return;}
-    _setProg(20,'Python processing '+j.count+' file(s)…','');
+    const tU=performance.now(); let lastLog=0;
+    const r=await _xhrUpload(fd,(l,t)=>{ const s=(performance.now()-tU)/1000, sp=l/Math.max(s,.01);
+      _setProg(10+Math.round(l/t*10),'Uploading… '+_mb(l)+' of '+_mb(t),(sp/1e6).toFixed(2)+' MB/s · '+Math.max(0,Math.round((t-l)/Math.max(sp,1)))+'s left');
+      if(s-lastLog>3){ lastLog=s; _ulog('Uploaded '+_mb(l)+' of '+_mb(t)+' ('+(sp/1e6).toFixed(2)+' MB/s)'); } });
+    if(r.status===401||r.status===403){let m='Only an admin can upload data.';try{m=JSON.parse(r.text).error||m;}catch(e){}_showUpErr(m);return;}
+    let j={}; try{ j=JSON.parse(r.text); }catch(e){}
+    if(!j.ok){_showUpErr(j.error||('Upload failed ('+r.status+')'));return;}
+    _ulog('Upload finished in '+((performance.now()-tU)/1000).toFixed(1)+'s','ok');
+    _srvOff=(performance.now()-_upT0)/1000;
+    _setProg(20,'Server processing '+j.count+' file(s)…','');
     _doPoll();
-  }catch(e){_showUpErr('Cannot reach Python server. Make sure CONVERT_TO_PARQUET.bat is running, then refresh this page and try again. (Check: server runs on http://localhost:8765)');}
+  }catch(e){_showUpErr('Cannot reach the server. Check your internet connection and try again.');}
 }
+let _srvOff=0;
 function _showUpErr(msg){
   const e=document.getElementById('up-error');if(e){e.style.display='block';e.textContent=msg;}
   const dz=document.getElementById('dropzone');if(dz){dz.style.pointerEvents='';dz.style.opacity='1';}
@@ -9414,8 +9526,9 @@ function _doPoll(){
       _setProg(j.progress,j.message||'Processing…',j.current_file||'');
       const k=document.getElementById('up-kept');if(k)k.textContent=(j.rows_kept||0).toLocaleString();
       const t=document.getElementById('up-total');if(t)t.textContent=(j.rows_processed||0).toLocaleString();
-      if(j.error){_showUpErr(j.error);return;}
-      if(j.done){_setProg(100,'✓ Done! Loading…','');setTimeout(_loadDashboard,600);}
+      if(Array.isArray(j.log)){ const base=(j.log.find(x=>/Receiving upload/.test(x.m))||{t:0}).t; _srvLog=j.log.map(x=>({t:x.t-base,off:_srvOff,m:x.m})); _renderUpLog(); }
+      if(j.error){_showUpErr(j.error);clearInterval(_upTick);return;}
+      if(j.done){_setProg(100,'✓ Done! Loading…','');clearInterval(_upTick);setTimeout(_loadDashboard,1200);}
       else if(j.running)_doPoll();
     }catch(e){_doPoll();}
   },500);
@@ -15205,6 +15318,13 @@ body.ai-open #sr-drawer-bg{z-index:969}body.ai-open #sr-drawer{z-index:970}
 #aop-bar button{border:none;background:#fff;color:#c4000f;font:inherit;font-weight:800;font-size:11.5px;border-radius:999px;padding:3px 11px;cursor:pointer}
 body.ai-open #aop-bar{display:none}
 @media(max-width:700px){#aop-bar span{display:none}.mj-aop span{display:none}}
+/* upload processing log */
+.up-logw{margin:0 0 14px;border-radius:10px;overflow:hidden;border:1px solid #1f2937;background:#0f1117}
+.up-logh{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#171a22;color:#cbd5e1;font-size:11.5px}
+.up-logh b{font-weight:700;letter-spacing:.02em}.up-logh span{font-family:ui-monospace,Consolas,monospace;color:#86efac}
+.up-log{max-height:190px;overflow:auto;padding:8px 10px;font-family:ui-monospace,Consolas,'Courier New',monospace;font-size:11.5px;line-height:1.55;color:#e5e7eb;white-space:pre-wrap;word-break:break-word}
+.up-log div{display:flex;gap:8px}.up-log i{font-style:normal;color:#64748b;flex:0 0 46px;text-align:right}
+.up-log .b{color:#93c5fd}.up-log .ok{color:#86efac}.up-log .er{color:#fca5a5}
 /* Home: text and icons that sit on red / coloured chips stay white */
 .cc-logo svg,.mj-k .ic svg,.mj-node .in .gl svg,.mj-nav button.up svg{stroke:#fff !important}
 .cc-btn,.ccm-go,.mj-export,.mj-seg button.on,.mj-node .stp{color:#fff !important}

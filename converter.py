@@ -432,6 +432,12 @@ class Job:
         self.progress=0; self.message=''; self.current_file=''
         self.rows_processed=0; self.rows_kept=0; self.total_files=0
         self.cache_dir=None; self.file_stats=[]; self.rows_no_sr=0
+        self.log=[]; self.t0=time.time(); self.dups=0
+    def note(self, msg):
+        """A line for the processing log the upload screen shows live."""
+        self.log.append({'t': round(time.time()-self.t0, 1), 'm': str(msg)})
+        del self.log[:-150]
+        log.info(f"  {msg}")
 
 _job       = Job()
 _cache_dir = Path(os.environ.get('DATA_DIR') or (SCRIPT_DIR / '_rfai_cache'))
@@ -559,14 +565,33 @@ def _process_csv(path, fname: str, grand: int, kept: int, chunk_idx: int):
         return grand, kept, chunk_idx
 
     batch = []
+    seen = set()          # hashes of rows already handled: exact duplicates are skipped cheaply
+    t0 = time.time(); g0 = grand; last_note = t0
     for chunk_df in reader:
         chunk_df = chunk_df[[headers[i] for i in used]] if len(used) else chunk_df
-        for row in chunk_df.itertuples(index=False, name=None):
+        n_all = len(chunk_df)
+        try:
+            h = pd.util.hash_pandas_object(chunk_df, index=False).to_numpy()
+            keep = []
+            for j, x in enumerate(h):
+                x = int(x)
+                if x in seen: continue
+                if len(seen) < 2_000_000: seen.add(x)     # bounded memory (~150 MB at most)
+                keep.append(j)
+            if len(keep) < n_all:
+                _job.dups += n_all - len(keep); chunk_df = chunk_df.iloc[keep]
+        except Exception: pass
+        grand += n_all - len(chunk_df)
+        cols_ = [chunk_df[c].to_numpy(dtype=object, na_value='') for c in chunk_df.columns]
+        for row in zip(*cols_):
             grand += 1
             r = process_row(row, cm)
             if r: batch.append(r); kept += 1
         _job.rows_processed = grand; _job.rows_kept = kept
-        _job.message = f'{fname} — {grand:,} rows read'
+        rate = (grand - g0) / max(time.time() - t0, 0.01)
+        _job.message = f'{fname} — {grand:,} rows read · {rate:,.0f} rows/s'
+        if time.time() - last_note > 4:
+            _job.note(f'{fname}: {grand-g0:,} rows read ({rate:,.0f}/s, {_job.dups:,} duplicates skipped)'); last_note = time.time()
         if len(batch) >= FLUSH:
             to_pq(batch, _stage_dir / f"{Path(fname).stem}_c{chunk_idx:04d}.parquet")
             batch = []; chunk_idx += 1
@@ -601,6 +626,17 @@ def _process_files(file_infos, source='website upload'):
     for fi,(fname,content) in enumerate(file_infos):
         try: raw += os.path.getsize(content)
         except Exception: pass
+        if fname.lower().endswith('.gz'):          # compressed by the browser before upload
+            import gzip, shutil
+            plain = str(content)[:-3] if str(content).endswith('.gz') else str(content) + '.csv'
+            t_ = time.time()
+            with gzip.open(content, 'rb') as gi, open(plain, 'wb') as go: shutil.copyfileobj(gi, go, 1 << 20)
+            try: Path(content).unlink()
+            except Exception: pass
+            _job.note(f'Unzipped {fname}: {os.path.getsize(plain)/1e6:,.1f} MB in {time.time()-t_:.1f}s')
+            content = plain; fname = fname[:-3]
+        t_file = time.time(); g0, k0 = grand, kept
+        _job.note(f'Reading {fname}')
         _job.current_file=fname
         _job.progress=int(fi/len(file_infos)*90)
         _job.message=f'[{fi+1}/{len(file_infos)}] {fname}'
@@ -634,6 +670,8 @@ def _process_files(file_infos, source='website upload'):
         finally:
             try: Path(content).unlink()
             except Exception: pass
+        dt = max(time.time() - t_file, 0.01)
+        _job.note(f'Finished {fname}: {grand-g0:,} rows in {dt:.1f}s ({(grand-g0)/dt:,.0f} rows/s), {kept-k0:,} with RFAI date')
 
         ps=sum(s['scanned'] for s in _job.file_stats)
         pk=sum(s['kept']    for s in _job.file_stats)
@@ -655,23 +693,32 @@ def _process_files(file_infos, source='website upload'):
         for f in _stage_dir.glob("*.parquet"): f.unlink()
         _job.progress=100; _job.running=False; return   # existing data left untouched
     _job.progress=92; _job.message='Preparing dashboard…'
+    if _job.dups: _job.note(f'Skipped {_job.dups:,} exact duplicate rows')
+    _job.note('Merging duplicates to one row per SR')
+    t_ = time.time()
     # success: replace the old data with the new upload
     _df_cache=None; _df_full_cache=None; _dash_cache=None; gc.collect()
     for f in _cache_dir.glob("*.parquet"): f.unlink()
     for f in _stage_dir.glob("*.parquet"): os.replace(f, _cache_dir / f.name)
     _build_caches()                      # finish BEFORE reporting done, so the page
+    _job.note(f'{len(_df_full_cache) if _df_full_cache is not None else 0:,} unique SRs ready in {time.time()-t_:.1f}s')
     small = _compact_cache()             # one small deduplicated file is what gets stored
+    if small: _job.note(f'Compressed to {small/1e6:,.2f} MB (Parquet, zstd)')
     _set_meta([n for n, _ in file_infos], source)
     _job.progress=100; _job.done=True    # reads the ready cache instead of redoing it
-    _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)'
+    _job.message=f'✓ Done — {kept:,} rows with RFAI date from {len(file_infos)} file(s)' + (f' ({_job.dups:,} duplicate rows skipped)' if _job.dups else '')
     if errors: _job.message += ' (skipped: ' + ' | '.join(errors) + ')'
     if small and raw:
         mb = lambda b: f'{b/1e9:.2f} GB' if b >= 1e9 else f'{b/1e6:.1f} MB'
         cut = max(0.0, 1 - small / raw)
         _job.message += f' · saved as {mb(small)} ({cut:.1%} smaller' + (f', {raw / small:,.0f}x' if small else '') + f' than the {mb(raw)} uploaded)'
     log.info(_job.message)
-    if S3_BUCKET: save_to_storage()
+    if S3_BUCKET:
+        t_ = time.time(); _job.note('Saving to cloud storage')
+        save_to_storage()
+        _job.note((_storage_status.get('last_save') or 'saved').replace('ok: ', 'Saved: ') + f' ({time.time()-t_:.1f}s)')
     if SQL_ENABLED: save_to_sql()
+    _job.note(f'All done in {time.time()-_job.t0:.1f}s')
     _job.running=False
 
 def _compact_cache():
@@ -1684,6 +1731,7 @@ async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(..
     # mark busy NOW: the page polls /api/progress right away, and on a slow server
     # the background task may not have started yet (it would see the old 'done')
     _job.reset(); _job.running=True; _job.message='Receiving file(s)…'
+    _job.note('Receiving upload')
     # stream to disk (not RAM) — the free server only has 512 MB
     up_dir=_cache_dir/'_uploads'; up_dir.mkdir(parents=True,exist_ok=True)
     import shutil, uuid
@@ -1692,6 +1740,7 @@ async def upload(background_tasks:BackgroundTasks,files:List[UploadFile]=File(..
         dst=up_dir/f"{uuid.uuid4().hex}{Path(f.filename or 'x').suffix.lower()}"
         with open(dst,'wb') as out: shutil.copyfileobj(f.file,out,1024*1024)
         file_infos.append((f.filename,str(dst)))
+        _job.note(f'Received {f.filename} ({os.path.getsize(dst)/1e6:,.1f} MB)')
     background_tasks.add_task(process_files_bg,file_infos)
     return {"ok":True,"files":[f[0] for f in file_infos],"count":len(file_infos)}
 
@@ -1700,7 +1749,17 @@ def progress():
     return {"running":_job.running,"done":_job.done,"error":_job.error,
             "progress":_job.progress,"message":_job.message,
             "current_file":_job.current_file,"total_files":_job.total_files,
-            "rows_processed":_job.rows_processed,"rows_kept":_job.rows_kept}
+            "rows_processed":_job.rows_processed,"rows_kept":_job.rows_kept,
+            "dups":_job.dups,"elapsed":round(time.time()-_job.t0,1),"log":_job.log[-80:]}
+
+@app.post("/api/upload-plan")
+async def upload_plan(request:Request):
+    """The browser sends a file's header row; the reply lists the columns the tool uses,
+    so the browser can upload only those (often a fraction of the file)."""
+    d=await request.json(); hdr=[str(h) for h in (d.get('headers') or [])][:2000]
+    cm=map_headers(hdr)
+    keep=sorted({i for i in cm.values() if i is not None})
+    return {"keep":keep,"matched":len(keep),"rfai":cm.get('RFAI_NOTICE') is not None}
 
 @app.get("/api/ping")
 def ping(): return {"ok":True}
