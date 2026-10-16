@@ -761,10 +761,12 @@ S3_BUCKET = os.environ.get('S3_BUCKET', '')
 S3_PREFIX = os.environ.get('S3_PREFIX', 'rfai/').rstrip('/') + '/'
 
 def _s3_region():
-    """R2 uses 'auto'; Backblaze B2 needs the region from its endpoint."""
-    if os.environ.get('S3_REGION'): return os.environ['S3_REGION']
+    """R2 uses 'auto'; Backblaze B2's region is part of its endpoint and always wins
+    (a leftover S3_REGION from another provider would make B2 reject every request)."""
     m = re.search(r's3\.([a-z0-9-]+)\.backblazeb2\.com', os.environ.get('S3_ENDPOINT', ''))
-    return m.group(1) if m else 'auto'
+    if m: return m.group(1)
+    if os.environ.get('S3_REGION'): return os.environ['S3_REGION']
+    return 'auto'
 
 def _s3():
     import boto3
@@ -1704,6 +1706,9 @@ def progress():
 def ping(): return {"ok":True}
 
 @app.get("/api/storage-test")
+@app.get("/api/storage_test")
+@app.get("/api/storagetest")
+@app.get("/storage-test")
 def storage_test():
     """Try the storage connection and explain what is wrong (no secrets shown)."""
     ak = os.environ.get('S3_ACCESS_KEY', ''); sk = os.environ.get('S3_SECRET_KEY', '')
@@ -1720,6 +1725,10 @@ def storage_test():
         hints.append("Supabase endpoint should end with /storage/v1/s3")
     if 'supabase' in ep and not os.environ.get('S3_REGION'):
         hints.append('S3_REGION is empty — Supabase needs it (e.g. ap-south-1)')
+    if 'backblazeb2' in ep and os.environ.get('S3_REGION') and os.environ['S3_REGION'] != _s3_region():
+        hints.append(f"S3_REGION '{os.environ['S3_REGION']}' is ignored for Backblaze (using {_s3_region()} from the endpoint); you can delete it")
+    if 'backblazeb2' in ep and ak and not ak.startswith('00'):
+        hints.append('Backblaze keyIDs usually start with 00: check S3_ACCESS_KEY is the keyID, not the key name')
     try:
         _last_s3_body.clear()
         s3 = _s3()
@@ -1728,7 +1737,7 @@ def storage_test():
         if S3_BUCKET and names and S3_BUCKET not in names:
             hints.append(f"Bucket '{S3_BUCKET}' not found — these keys see: {names}")
     except Exception as e:
-        info['list_buckets_error'] = _s3_err(e)
+        info['list_buckets_error'] = _s3_err(e)   # normal for keys limited to one bucket
     try:
         _last_s3_body.clear()
         r = _s3().list_objects_v2(Bucket=S3_BUCKET, Prefix=S3_PREFIX)
@@ -1737,6 +1746,8 @@ def storage_test():
     except Exception as e:
         info['ok'] = False; info['error'] = _s3_err(e)
         err = info['error']
+        if 'InvalidAccessKeyId' in err or 'bad_auth_token' in err or '401' in err:
+            hints.append('The key is not valid (deleted or mistyped): make a new application key and put keyID in S3_ACCESS_KEY, applicationKey in S3_SECRET_KEY')
         if 'SignatureDoesNotMatch' in err or '403' in err:
             hints.append('Keys or region are wrong: re-copy Access key ID / Secret access key, check S3_REGION')
         if 'NoSuchBucket' in err or '404' in err:

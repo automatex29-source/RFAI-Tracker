@@ -5340,6 +5340,7 @@ function usrMenu(ev){
   const m=document.createElement('div'); m.className='um-menu'; m.setAttribute('role','menu');
   m.innerHTML='<div class="who"><b>'+_hmEsc(_me.user||'')+'</b><span>Signed in</span><br><span class="role">'+(_me.role==='admin'?'Admin':'Viewer')+'</span></div>'+
     (_me.role==='admin'?'<button role="menuitem" onclick="_umClose();usersOpen()">'+_UI.us+'Manage users</button>':'')+
+    (_me.role==='admin'?'<button role="menuitem" onclick="_umClose();storageCheck()"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Check cloud storage</button>':'')+
     (_me.user!=='admin'?'<button role="menuitem" onclick="_umClose();pwOpen()">'+_UI.pw+'Change password</button>':'')+
     ((!window._isPhone||matchMedia('(display-mode: standalone)').matches||navigator.standalone)?'':'<button role="menuitem" onclick="_umClose();installApp()"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 7v7M9 11l3 3 3-3"/></svg>Install the app</button>')+
     '<button role="menuitem" class="out" onclick="signOut()">'+_UI.out+'Sign out</button>';
@@ -5362,6 +5363,19 @@ function _umDialog(title,body,small){
   document.body.appendChild(bg); document.addEventListener('keydown',_umKey);
   const i=bg.querySelector('input'); if(i) i.focus();
   return bg;
+}
+async function storageCheck(){
+  const bg=_umDialog('Cloud storage','<div id="stc">Checking the connection…</div>');
+  let j={}; try{ j=await (await fetch(_B+'/api/storage-test')).json(); }catch(e){ j={ok:false,error:'Could not reach the server: '+e.message}; }
+  const E=_hmEsc, row=(k,v)=>'<tr><td style="color:#6b7280;padding:4px 10px 4px 0;white-space:nowrap">'+k+'</td><td style="padding:4px 0;word-break:break-all"><b>'+E(v==null?'':String(v))+'</b></td></tr>';
+  const files=(j.files_in_storage||[]);
+  const head=j.ok?'<div style="padding:12px 14px;border-radius:12px;background:#ecfdf5;color:#065f46;font-weight:700">✓ Connected. Data is saved to cloud storage and comes back after every restart.</div>'
+                 :'<div style="padding:12px 14px;border-radius:12px;background:#fff1f2;color:#9f1239;font-weight:700">✕ Not connected'+(j.error?': '+E(String(j.error).split(' | reply')[0].replace(/^HTTP \d+ /,'')):'')+'</div>';
+  const hints=(j.hints||[]).length?'<div style="margin-top:12px"><b>What to fix in Render → Environment:</b><ul style="margin:6px 0 0 18px">'+j.hints.map(h=>'<li>'+E(h)+'</li>').join('')+'</ul></div>':'';
+  const body=head+hints+'<table style="margin-top:12px;font-size:13px">'+row('Endpoint',j.endpoint)+row('Bucket',j.bucket)+row('Region used',j.region)+
+    row('Access key',j.access_key_starts?(j.access_key_starts+' ('+j.access_key_length+' characters)'):'missing')+row('Secret key',j.secret_key_length?j.secret_key_length+' characters (hidden)':'missing')+
+    row('Files saved',j.ok?(files.length?files.map(f=>f.split('/').pop()).join(', '):'none yet: upload data to save it'):'')+'</table>';
+  const el=bg.querySelector('#stc'); if(el) el.innerHTML=body;
 }
 function _umMsg(t,ok){ const m=document.getElementById('um-msg'); if(m){ m.textContent=t; m.className='um-msg '+(ok?'k':'e'); } }
 function pwOpen(){
