@@ -84,11 +84,18 @@ class LocalBrain:
 
         # one SR
         df = self.ai.get_df()
-        srs = set(df['srNo'].astype(str).str.upper())
-        for tok in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-/]{2,}', text):
-            if tok.upper() in srs and any(c.isdigit() for c in tok):
-                q['sr'] = tok
-                break
+        # look up only the words of the question (a set of every SR# costs hundreds of MB)
+        cands = [tok for tok in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-/]{2,}', text) if any(c.isdigit() for c in tok)]
+        if cands:
+            var = {v for c in cands for v in (c, c.upper(), c.lower())}
+            srs = {str(x).upper() for x in df['srNo'][df['srNo'].isin(var)].tolist()}
+            if not srs:                        # mixed-case SR numbers: compare upper-cased
+                up = df['srNo'].astype(str).str.upper()
+                srs = set(up[up.isin([c.upper() for c in cands])].tolist()); del up
+            for tok in cands:
+                if tok.upper() in srs:
+                    q['sr'] = tok
+                    break
 
         # circles
         cs = []

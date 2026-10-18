@@ -190,6 +190,15 @@ def _col(name, i, pal):
     return ST_COL.get(str(name).strip().lower(), pal[i % len(pal)])
 
 
+def _dates(s):
+    """dd-Mon-yyyy text -> datetime; a Categorical is parsed once per distinct date."""
+    if isinstance(s.dtype, pd.CategoricalDtype):
+        cats = pd.Series([str(v) for v in s.cat.categories] + [''], dtype=object)
+        vals = pd.to_datetime(cats, format='%d-%b-%Y', errors='coerce').to_numpy()
+        return pd.Series(vals[s.cat.codes.to_numpy()], index=s.index)
+    return pd.to_datetime(s.astype(str), format='%d-%b-%Y', errors='coerce')
+
+
 class Assistant:
     """Bound to the host app: get_df() returns the current data, build_xlsx is the export builder."""
 
@@ -404,7 +413,7 @@ class Assistant:
             if df is None or not len(df): return {"error": "No data is loaded yet."}
             st = df['srStatus'].astype(str).value_counts().to_dict()
             vals = lambda c: sorted(x for x in df[c].astype(str).unique() if x and x != 'nan')[:80] if c in df.columns else []
-            d = pd.to_datetime(df['rfaiNotice'].astype(str), format='%d-%b-%Y', errors='coerce')
+            d = _dates(df['rfaiNotice'])
             return {"total_srs": len(df), "statuses": st, "circles": vals('circle'),
                     "exit_months": sorted(vals('exitMK'), key=self.mk_sort_val), "categories": vals('category'),
                     "projects": vals('bPrj'), "oems": vals('oem'), "tocos": vals('toco'), "project_types": vals('domain'),
@@ -416,7 +425,7 @@ class Assistant:
             keys = []
             dg = a.get('date_group') or {}
             if dg.get('field'):
-                d = pd.to_datetime(df[DATE_COLS[dg['field']]].astype(str), format='%d-%b-%Y', errors='coerce')
+                d = _dates(df[DATE_COLS[dg['field']]])
                 per = dg.get('period', 'month')
                 lab = d.dt.strftime('%Y-%m-%d') if per == 'day' else (d - pd.to_timedelta(d.dt.weekday, unit='D')).dt.strftime('week of %Y-%m-%d') if per == 'week' else d.dt.strftime('%Y-%m')
                 keys.append(lab.rename(dg['field'] + '_' + per))
@@ -438,7 +447,7 @@ class Assistant:
             sk = {'days': None, 'sr': 'srNo', 'circle': 'circle', 'initial_rfai': 'rfaiNotice', 'final_rfai': 'finalRfai', 'onair': 'onAir'}.get(a.get('sort_by') or 'days')
             desc = a.get('descending', True)
             if sk is None: key = self._days(df)
-            elif sk in ('rfaiNotice', 'finalRfai', 'onAir'): key = pd.to_datetime(df[sk].astype(str), format='%d-%b-%Y', errors='coerce')
+            elif sk in ('rfaiNotice', 'finalRfai', 'onAir'): key = _dates(df[sk])
             else: key = df[sk].astype(str)
             df = df.loc[key.sort_values(ascending=not desc, na_position='last').index]
             n = min(int(a.get('limit') or 25), 100)
@@ -447,7 +456,9 @@ class Assistant:
             return {"total_matches": len(df), "shown": len(sub), "rows": sub.to_dict('records')}
         if name == 'get_sr':
             df = self.get_df()
-            hit = df[df['srNo'].astype(str).str.upper() == str(a['sr']).strip().upper()]
+            x = str(a['sr']).strip()
+            hit = df[df['srNo'].isin([x, x.upper(), x.lower()])]          # exact match: no per-row copy
+            if not len(hit): hit = df[df['srNo'].astype(str).str.upper() == x.upper()]
             if not len(hit): hit = df[df['srNo'].astype(str).str.upper().str.contains(str(a['sr']).strip().upper(), regex=False)].head(5)
             if not len(hit): return {"error": "SR not found"}
             return {"matches": hit.astype(str).replace({'nan': ''}).head(5).to_dict('records')}

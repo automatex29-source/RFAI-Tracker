@@ -2,7 +2,7 @@ services:
   - type: web
     name: rfai-tracker
     runtime: python
-    plan: free            # 512 MB RAM: tested to ~1M unique SRs (3M rows per upload); use 'standard' beyond
+    plan: free            # 512 MB RAM: tested to ~2M unique SRs (5M rows per upload); use 'standard' beyond
     buildCommand: pip install -r requirements.txt
     startCommand: python converter.py
     healthCheckPath: /api/ping

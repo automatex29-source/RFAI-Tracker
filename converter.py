@@ -468,7 +468,7 @@ def _vf(df):
     key = (id(df), len(df))
     hit = _vf_cache.get(key)
     if hit is None:
-        d = pd.to_datetime(df['rfaiNotice'].astype(str), format='%d-%b-%Y', errors='coerce')
+        d = _pdates(df['rfaiNotice'])
         hit = df[d >= AOP_START]
         while len(_vf_cache) >= 4: _vf_cache.pop(next(iter(_vf_cache)))
         _vf_cache[key] = hit
@@ -479,26 +479,65 @@ _df_cache_cols = ['circle','category','bPrj','toco','domain','oem',
 _CAT_COLS      = ['circle','category','bPrj','toco','domain','oem',
                   'srStatus','group','exitMK','journeyMK']
 
+def _str_arr(s):
+    """Column -> numpy object array of str ('' for missing). For a Categorical the row
+    values are references to its few category strings, not a new string per row (that
+    copy of a large column was the biggest memory spike after loading)."""
+    if isinstance(s.dtype, pd.CategoricalDtype):
+        cats = np.array([('' if v is None or (isinstance(v, float) and v != v) else str(v))
+                         for v in s.cat.categories] + [''], dtype=object)
+        return cats[s.cat.codes.to_numpy()]          # code -1 (missing) -> trailing ''
+    return s.astype(str).replace({'nan': '', 'None': '', '<NA>': ''}).to_numpy(dtype=object)
+
+def _pdates(s):
+    """dd-Mon-yyyy text column -> datetime Series; a Categorical is parsed once per
+    distinct date instead of once per row."""
+    if isinstance(s.dtype, pd.CategoricalDtype):
+        cats = pd.Series([str(v) for v in s.cat.categories] + [''], dtype=object)
+        vals = pd.to_datetime(cats, format='%d-%b-%Y', errors='coerce').to_numpy()
+        return pd.Series(vals[s.cat.codes.to_numpy()], index=s.index)
+    return pd.to_datetime(s.astype(str), format='%d-%b-%Y', errors='coerce')
+
+def _contains(df, col, q):
+    """Case-insensitive substring match on a text column, without making a Python
+    string per row (Arrow-backed text is searched in Arrow; a Categorical per category)."""
+    if col not in df.columns: return np.zeros(len(df), bool)
+    s = df[col]
+    if isinstance(s.dtype, pd.CategoricalDtype):
+        return _cat_map(s, lambda x: x.astype(str).str.lower().str.contains(q, regex=False, na=False).to_numpy()).astype(bool)
+    return s.astype(str).str.lower().str.contains(q, regex=False, na=False).to_numpy(dtype=bool, na_value=False)
+
+def _cat_map(s, fn):
+    """fn applied once per distinct value of a Categorical, spread to the rows."""
+    if isinstance(s.dtype, pd.CategoricalDtype):
+        vals = fn(pd.Series(list(s.cat.categories) + [''], dtype=object))
+        return np.asarray(vals)[s.cat.codes.to_numpy()]
+    return np.asarray(fn(s))
+
 def _refresh_pending_delay(df):
     """Stored data can be days/months old: recompute delay of still-pending
     SRs as of TODAY (same formula as process_row: TODAY - Final RFAI - PRI days)."""
     if 'finalRfai' not in df.columns or 'srStatus' not in df.columns: return df
-    pend = df['srStatus'].astype(str).isin(['OnAir Pending','Open PRI','RFAI Pending']).to_numpy()
+    pend = _cat_map(df['srStatus'], lambda v: v.astype(str).isin(['OnAir Pending','Open PRI','RFAI Pending']).to_numpy()).astype(bool)
     if not pend.any(): return df
-    anchor = pd.to_datetime(df['finalRfai'].astype(str), format='%d-%b-%Y', errors='coerce')
-    days = (pd.Timestamp(date.today()) - anchor).dt.days
-    pri = (pd.to_numeric(df['priDays'], errors='coerce').fillna(0).clip(lower=0)
-           if 'priDays' in df.columns else 0)
-    new = (days - pri).clip(lower=0)
-    upd = pend & new.notna().to_numpy()
-    delay = pd.to_numeric(df['delay'], errors='coerce').fillna(-1).to_numpy().astype('int32')
-    delay[upd] = new.to_numpy()[upd].astype('int32')
-    df['delay'] = np.minimum(delay, 32767).astype('int16')
+    today = pd.Timestamp(date.today())
+    days = _cat_map(df['finalRfai'], lambda v: (today - _pdates(v)).dt.days.to_numpy(dtype=float))
+    days = days.astype(np.float32)                      # small arrays: this runs on every load
+    if 'priDays' in df.columns:
+        pri = pd.to_numeric(df['priDays'], errors='coerce').to_numpy(dtype=np.float32, na_value=0)
+        np.clip(pri, 0, None, out=pri); days -= pri; del pri
+    np.clip(days, 0, None, out=days)
+    upd = pend & ~np.isnan(days)
+    delay = pd.to_numeric(df['delay'], errors='coerce').to_numpy(dtype=np.float32, na_value=-1).astype(np.int32)
+    delay[upd] = days[upd].astype(np.int32); del days, upd
+    df['delay'] = np.minimum(delay, 32767).astype('int16'); del delay
     if 'group' in df.columns:
         d = df['delay'].to_numpy()
-        g = np.where(d < 0, 'N/A', np.where(d <= 30, '0-30', np.where(d <= 60, '30-60',
-                     np.where(d <= 90, '60-90', '>90'))))
-        df['group'] = g
+        code = np.full(len(d), 3, dtype=np.int8)           # >90
+        code[d <= 90] = 2; code[d <= 60] = 1; code[d <= 30] = 0; code[d < 0] = 4
+        df['group'] = pd.Categorical.from_codes(code,
+                                                categories=['0-30', '30-60', '60-90', '>90', 'N/A']
+                                                ).remove_unused_categories()
     return df
 
 def _optimise_df(df):
@@ -549,55 +588,86 @@ def _dedup_df(df):
 
 _PD3 = int(pd.__version__.split('.')[0]) >= 3   # pandas 3: text columns are Arrow-backed
 
-def _arrow_to_df(tbl, blanks_last=False):
-    """Arrow table -> pandas with Categorical strings, one column at a time so only one
-    column is ever held twice (Table.unify_dictionaries + to_pandas on the whole table
-    briefly needed ~2x the data, which crashed the 512 MB server on big uploads).
-    blanks_last: rows without an SR# go to the end (the order _dedup_df gives)."""
+def _col_to_pd(c):
+    """One Arrow column -> pandas: low-cardinality text as Categorical; text where nearly
+    every value differs (SR#, site ID) as Arrow-backed text on pandas 3, a fraction of
+    a Categorical whose categories are Python strings."""
     import pyarrow.compute as pc
-    order = None
-    if blanks_last and 'srNo' in tbl.column_names:
-        sr = tbl.column('srNo')
-        if pa.types.is_dictionary(sr.type): sr = sr.cast(sr.type.value_type)
-        blank = pc.fill_null(pc.equal(sr, ''), True).to_numpy(zero_copy_only=False); del sr
-        if blank.any():
-            order = pa.array(np.concatenate([np.nonzero(~blank)[0], np.nonzero(blank)[0]]))
-        del blank
+    if pa.types.is_dictionary(c.type): c = c.cast(c.type.value_type)
+    if not (pa.types.is_string(c.type) or pa.types.is_large_string(c.type)):
+        return c.to_pandas()
+    if isinstance(c, pa.ChunkedArray): c = c.combine_chunks()   # one dictionary, not one per block
+    if _PD3 and len(c) > 100_000:
+        # nearly-unique columns are recognised from a sample: no costly full hash table
+        smp = c.slice(0, 50_000)
+        if pc.count_distinct(smp).as_py() > 0.5 * len(smp): return c.to_pandas()
+    enc = pc.dictionary_encode(c)
+    if _PD3 and len(enc.dictionary) > 0.5 * max(len(c), 1):
+        del enc; return c.to_pandas()
+    del c
+    codes = pc.fill_null(enc.indices, -1).to_numpy(zero_copy_only=False).astype(np.int32)
+    return pd.Categorical.from_codes(codes, categories=pd.Index(enc.dictionary.to_pylist(), dtype=object))
+
+def _load_df(files):
+    """Parquet file(s) -> pandas, one column at a time: only one column is ever held in
+    both Arrow and pandas form (reading the whole table first needed ~2-3x the data)."""
+    files = [str(f) for f in files]
+    ok = []
+    for f in files:
+        try: pq.read_schema(f); ok.append(f)
+        except Exception as e: log.warning(f"  Skipping {Path(f).name}: {e}")
+    if not ok: return None
+    names = [n for n in pq.read_schema(ok[0]).names if n != '_ord']
     cols = {}
-    for name in list(tbl.column_names):
-        c = tbl.column(name)
-        if order is not None: c = c.take(order)
-        if pa.types.is_dictionary(c.type) and _PD3:
-            c = pa.table({name: c}).unify_dictionaries().column(name)
-            if sum(len(x.dictionary) for x in c.chunks[:1]) > 0.5 * max(len(c), 1):
-                # nearly every value different (SR#, site ID): compact Arrow-backed text
-                # needs a fraction of a Categorical, whose categories are Python strings
-                cols[name] = c.cast(c.type.value_type).to_pandas(); del c
-                tbl = tbl.drop_columns([name]); pa.default_memory_pool().release_unused()
-                continue
-        if pa.types.is_dictionary(c.type):
-            c = pa.table({name: c}).unify_dictionaries().column(name).combine_chunks()
-            codes = pc.fill_null(c.indices, -1).to_numpy(zero_copy_only=False).astype(np.int32)
-            cols[name] = pd.Categorical.from_codes(codes, categories=pd.Index(c.dictionary.to_pylist(), dtype=object)) \
-                         if len(c.dictionary) else pd.Categorical([None] * len(codes))
-        elif pa.types.is_string(c.type) or pa.types.is_large_string(c.type):
-            cols[name] = pd.Categorical(c.to_pandas())
-        else:
-            cols[name] = c.to_pandas()
-        del c
-        tbl = tbl.drop_columns([name]); pa.default_memory_pool().release_unused()
+    for name in names:
+        parts = []
+        for f in ok:
+            if name in pq.read_schema(f).names:
+                parts.append(pq.read_table(f, columns=[name]).column(name))
+        c = pa.chunked_array([ch for p_ in parts for ch in p_.chunks]) if parts else None
+        del parts
+        if c is not None: cols[name] = _col_to_pd(c)
+        del c; pa.default_memory_pool().release_unused()
     return pd.DataFrame(cols)
 
-def _compact_dicts(t):
-    """After take(), dictionary columns still carry the whole file's dictionary (e.g. every
-    SR# of the file); rebuild them from the kept rows only."""
+def _write_kept(fs, sizes, keep):
+    """Write the rows chosen by _dedup_keep from the chunk files into one zstd Parquet
+    file, file by file (rows without an SR# last, as _dedup_df orders them)."""
     import pyarrow.compute as pc
-    t = t.combine_chunks(); cols = []
-    for c in t.columns:
-        if pa.types.is_dictionary(c.type):
-            c = pc.dictionary_encode(c.cast(c.type.value_type))
-        cols.append(c)
-    return pa.table(cols, names=t.column_names)
+    out = _cache_dir / 'rfai_dedup.parquet.tmp'; blk = _cache_dir / '_blanks.parquet.tmp'
+    w = wb = None; schema = None; start = 0
+    try:
+        for i, f in enumerate(fs):
+            n_f = sizes[i]
+            try:
+                if keep is not None:
+                    lo, hi = np.searchsorted(keep, [start, start + n_f])
+                    sel = keep[lo:hi] - start
+                    if not len(sel): continue
+                t = pq.read_table(str(f))
+                if keep is not None: t = t.take(pa.array(sel))
+                if schema is None:
+                    schema = pa.schema([fl for fl in t.schema if fl.name in OUT])
+                    w = pq.ParquetWriter(str(out), schema, compression='zstd',
+                                         compression_level=9, use_dictionary=True)
+                t = pa.table([t.column(fl.name).cast(fl.type) if fl.name in t.column_names
+                              else pa.nulls(len(t), fl.type) for fl in schema], schema=schema)
+                bl = pc.fill_null(pc.equal(t.column('srNo'), ''), True) if 'srNo' in schema.names else None
+                if bl is not None and pc.any(bl).as_py():
+                    if wb is None: wb = pq.ParquetWriter(str(blk), schema, compression='zstd')
+                    wb.write_table(t.filter(bl)); t = t.filter(pc.invert(bl))
+                w.write_table(t); del t
+            except Exception as e: log.warning(f"  Skipping {f.name}: {e}")
+            finally: start += n_f
+        if wb is not None:
+            wb.close(); wb = None
+            for b in pq.ParquetFile(str(blk)).iter_batches(batch_size=50_000): w.write_batch(b)
+    finally:
+        if wb is not None: wb.close()
+        if w is not None: w.close()
+        try: blk.unlink()
+        except Exception: pass
+    return out
 
 def _dedup_keys(tbl):
     """Per file: a 64-bit hash of each srNo, its -priority and whether SR# is blank.
@@ -861,52 +931,17 @@ def _build_caches():
             keep = _dedup_keep(np.concatenate(hs), np.concatenate(ps), np.concatenate(bs)) if hs else None
             del hs, ps, bs; _trim()
             if keep is not None: keep = np.sort(keep)
-        # pass 2: read each file and keep only the chosen rows
-        tables = []; start = 0
-        for i, f in enumerate(fs):
-            n_f = sizes[i] if need_dedup else 0
-            try:
-                if need_dedup and keep is not None:
-                    lo, hi = np.searchsorted(keep, [start, start + n_f])
-                    sel = keep[lo:hi] - start
-                    if not len(sel): continue
-                # read strings straight into dictionary form -> pandas Categorical,
-                # never materialising millions of individual Python strings
-                str_cols = [fld.name for fld in pq.read_schema(str(f))
-                            if pa.types.is_string(fld.type) or pa.types.is_large_string(fld.type)]
-                t = pq.read_table(str(f), read_dictionary=str_cols)
-                if '_ord' in t.column_names: t = t.drop_columns(['_ord'])
-                if need_dedup and keep is not None: t = _compact_dicts(t.take(pa.array(sel)))
-                tables.append(t)
-            except Exception as e: log.warning(f"  Skipping {f.name}: {e}")
-            finally: start += n_f
-        if not tables:
-            log.error("  No parquet files readable"); return
-        tbl = pa.concat_tables(tables, promote_options='default'); del tables
         if need_dedup:
-            # write the small stored copy now, straight from Arrow (doing it later from
-            # pandas needs a second full copy in memory)
-            try:
-                tmp = _cache_dir / 'rfai_dedup.parquet.tmp'
-                import pyarrow.compute as pc
-                sub = tbl.select([c for c in tbl.column_names if c in OUT])
-                with pq.ParquetWriter(str(tmp), sub.schema, compression='zstd',
-                                      compression_level=9, use_dictionary=True) as w:
-                    blanks = []                  # rows without SR# last, like the pandas copy
-                    for b in sub.to_batches(max_chunksize=50_000):
-                        if 'srNo' in b.schema.names:
-                            sr = b.column('srNo')
-                            if pa.types.is_dictionary(sr.type): sr = sr.cast(sr.type.value_type)
-                            bl = pc.fill_null(pc.equal(sr, ''), True)
-                            if pc.any(bl).as_py():
-                                blanks.append(b.filter(bl)); b = b.filter(pc.invert(bl))
-                        w.write_batch(b)
-                    for b in blanks: w.write_batch(b)
-                del sub
-                _compact_ready['path'] = tmp
-            except Exception as e:
-                log.warning(f"  Early compact skipped: {e}")
-        df = _arrow_to_df(tbl, blanks_last=need_dedup and keep is not None); del tbl
+            # pass 2: stream each file's kept rows straight into the stored file
+            # (rfai_dedup.parquet), so the merged data is never all in memory at once
+            src = _write_kept(fs, sizes, keep)
+            _compact_ready['path'] = src
+            srcs = [src]
+        else:
+            srcs = fs
+        df = _load_df(srcs)
+        if df is None:
+            log.error("  No parquet files readable"); return
         _trim()
 
         df = _optimise_df(df)
@@ -1328,18 +1363,42 @@ def _bucket_counts(d):
     return {'0-30': int((d<=30).sum()), '30-60': int(((d>30)&(d<=60)).sum()),
             '60-90': int(((d>60)&(d<=90)).sum()), '>90': int((d>90).sum())}
 
+class _StCodes(np.ndarray):
+    """Status per row as int codes into .names (sorted, like np.unique of the strings)."""
+    def __new__(cls, codes, names):
+        o = np.asarray(codes).view(cls); o.names = names; return o
+    def __array_finalize__(self, obj): self.names = getattr(obj, 'names', None)
+
+class _Keys:
+    """Group keys given as Categorical codes + category names (see _compute_dash_aggs)."""
+    def __init__(self, codes, names): self.codes, self.names = codes, names
+
 def _group_aggs(keys, st, delay, is_pend, is_oa):
     """Vectorised per-group stats: status counts, pending aging buckets,
     OnAir delay buckets and averages. One pass, no per-row Python."""
     out = {}
-    codes, uniq = pd.factorize(keys, sort=False)
+    if isinstance(keys, _Keys):
+        codes = keys.codes.astype(np.int64); uniq = keys.names + ['']
+        codes = np.where(codes < 0, len(uniq) - 1, codes)
+        # keep factorize's order: groups by first appearance
+        first = np.full(len(uniq), len(codes), dtype=np.int64)
+        np.minimum.at(first, codes, np.arange(len(codes)))
+        present = np.nonzero(first < len(codes))[0]; present = present[np.argsort(first[present])]
+        remap = np.full(len(uniq), -1, dtype=np.int64); remap[present] = np.arange(len(present))
+        codes = remap[codes]; uniq = [uniq[i] for i in present]
+    else:
+        codes, uniq = pd.factorize(keys, sort=False)
     order = np.argsort(codes, kind='stable')
     bounds = np.searchsorted(codes[order], np.arange(len(uniq)+1))
     for gi, k in enumerate(uniq):
         if not k: continue
         idx = order[bounds[gi]:bounds[gi+1]]
         st_g = st[idx]; d_g = delay[idx]
-        vals, cnts = np.unique(st_g, return_counts=True)
+        if isinstance(st, _StCodes):
+            cn = np.bincount(st_g, minlength=len(st.names)); nz = np.nonzero(cn)[0]
+            vals, cnts = [st.names[i] for i in nz], cn[nz]
+        else:
+            vals, cnts = np.unique(st_g, return_counts=True)
         pd_mask = is_pend[idx] & (d_g >= 0); oa_mask = is_oa[idx] & (d_g >= 0)
         pdv = d_g[pd_mask]; oav = d_g[oa_mask]; anyv = d_g[d_g >= 0]
         out[k] = {"total": int(len(idx)),
@@ -1365,13 +1424,34 @@ def _compute_dash_aggs_inner(df):
                 "byOem":[],"byCat":[],"agingBuckets":{},
                 "avgDelay":None,"avgDelayPending":None}
 
-    st    = df['srStatus'].astype(str).to_numpy()
+    if isinstance(df['srStatus'].dtype, pd.CategoricalDtype):
+        # status as small integer codes (+ names): no per-row strings to sort and compare
+        names = sorted(['' if v is None else str(v) for v in df['srStatus'].cat.categories] + [''])
+        names = list(dict.fromkeys(names))
+        pos = {n: i for i, n in enumerate(names)}
+        lut = np.array([pos['' if v is None else str(v)] for v in df['srStatus'].cat.categories] + [pos['']],
+                       dtype=np.int16)
+        st = _StCodes(lut[df['srStatus'].cat.codes.to_numpy()], names)
+    else:
+        st = _str_arr(df['srStatus'])
     delay = pd.to_numeric(df['delay'], errors='coerce').fillna(-1).astype(np.int32).to_numpy()
-    is_pend = np.isin(st, _PEND_ST); is_oa = st == 'OnAir'
-    def col(c): return df[c].astype(str).replace({'nan':'','None':''}).to_numpy()
+    if isinstance(st, _StCodes):
+        is_pend = np.isin(st, [i for i, n in enumerate(st.names) if n in _PEND_ST])
+        is_oa = st == (st.names.index('OnAir') if 'OnAir' in st.names else -1)
+    else:
+        is_pend = np.isin(st, _PEND_ST); is_oa = st == 'OnAir'
+    def col(c):
+        s_ = df[c]
+        if isinstance(s_.dtype, pd.CategoricalDtype):       # codes + names: no per-row strings
+            return _Keys(s_.cat.codes.to_numpy(), [('' if v is None else str(v)) for v in s_.cat.categories])
+        return _str_arr(s_)
 
-    vals, cnts = np.unique(st, return_counts=True)
-    statuses = {str(v): int(c) for v, c in zip(vals, cnts)}
+    if isinstance(st, _StCodes):
+        cn = np.bincount(st, minlength=len(st.names))
+        statuses = {st.names[i]: int(cn[i]) for i in np.nonzero(cn)[0]}
+    else:
+        vals, cnts = np.unique(st, return_counts=True)
+        statuses = {str(v): int(c) for v, c in zip(vals, cnts)}
 
     bm = _group_aggs(col('exitMK'), st, delay, is_pend, is_oa)
     byMonth = [dict(mk=k, **v) for k, v in bm.items()]
@@ -1978,8 +2058,13 @@ def summary():
             except Exception: pass
         df=pd.concat(parts,ignore_index=True) if parts else pd.DataFrame()
 
-    total_rows=len(df); rows_no_sr=int((df['srNo']=='').sum())
-    unique_srs=df['srNo'].replace('',pd.NA).dropna().nunique()
+    total_rows=len(df)
+    srs=df['srNo']
+    blank_sr=(srs.isna()|(srs.astype(str)=='')) if not isinstance(srs.dtype,pd.CategoricalDtype) \
+             else pd.Series(_str_arr(srs)=='',index=srs.index)
+    rows_no_sr=int(blank_sr.sum())
+    # the cache holds one row per SR already: no need to hash two million SR numbers
+    unique_srs=(total_rows-rows_no_sr) if cached else srs[~blank_sr].nunique()
     dup_sr_rows=(total_rows-rows_no_sr)-unique_srs
     no_rfai_drop=max(0,_job.rows_processed-total_rows)
     dedup=df if cached else _dedup_df(df.copy()); status_counts=dedup['srStatus'].value_counts().to_dict()
@@ -1992,16 +2077,24 @@ def summary():
              'jul','aug','sep','oct','nov','dec'].index(p[0][:3].lower())
         except: return 0
 
-    mons=sorted(df['exitMK'].dropna().replace('',pd.NA).dropna().unique().tolist(),key=_sk)
+    def _uniq(col):
+        s_=df[col]
+        if isinstance(s_.dtype,pd.CategoricalDtype):
+            used=np.unique(s_.cat.codes.to_numpy()); cats=s_.cat.categories
+            return [str(cats[i]) for i in used if i>=0 and str(cats[i]) not in ('','nan','None')]
+        return s_.dropna().replace('',pd.NA).dropna().unique().tolist()
+    mons=sorted(_uniq('exitMK'),key=_sk)
     ST_ORD=['OnAir','OnAir Pending','Open PRI','Rejected RFAI','RFAI Pending']
     rfai_by_month=[]
-    for jm in sorted(dedup['journeyMK'].replace('',pd.NA).dropna().unique().tolist(),key=_sk):
-        grp=dedup[dedup['journeyMK']==jm]
-        row={'rfai_month':jm,'total':len(grp)}
-        for st in ST_ORD: row[st]=int((grp['srStatus']==st).sum())
+    jm_arr=_str_arr(dedup['journeyMK']); st_arr=_str_arr(dedup['srStatus'])
+    for jm in sorted(set(jm_arr)-{'','nan','None'},key=_sk):
+        m=jm_arr==jm
+        row={'rfai_month':jm,'total':int(m.sum())}
+        for st in ST_ORD: row[st]=int((m&(st_arr==st)).sum())
         rfai_by_month.append(row)
+    del jm_arr, st_arr
 
-    def _ul(col): return sorted(df[col].dropna().replace('',pd.NA).dropna().unique().tolist())
+    def _ul(col): return sorted(_uniq(col))
     return {"total":total_unique,"total_rows":total_rows,"unique_srs":unique_srs,
             "rows_no_sr":rows_no_sr,"duplicate_rows":dup_sr_rows,
             "total_scanned":_job.rows_processed,"no_rfai_dropped":no_rfai_drop,
@@ -2068,7 +2161,7 @@ _VEL_COL={'rfai':'rfaiNotice','final':'finalRfai','pri_open':'priFirst','pri_clo
           'onair':'onAir','rej':'rfaiRej'}
 def _dcol(df,col):
     if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
-    return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
+    return _pdates(df[col])
 def _periods(start,end,gran,default_weeks=8):
     today=pd.Timestamp(date.today())
     try: e=pd.Timestamp(end).normalize() if end else today
@@ -2100,7 +2193,7 @@ def velocity(metric:str=Query(default='pri_open'), start:str=Query(default=''), 
     df=_vf(_df_full_cache)
     if df is None or not len(df): return {"labels":[],"rows":[]}
     starts,ends,lab,gran=_periods(start,end,gran)
-    circ=df['circle'].astype(str).to_numpy()
+    circ=_str_arr(df['circle'])
     today=pd.Timestamp(date.today())
     if metric=='pri_stock':
         pf=_dcol(df,'priFirst'); pl=_dcol(df,'priLast'); oa=_dcol(df,'onAir')
@@ -2208,9 +2301,9 @@ def momentum(circle:str=Query(default=''), start:str=Query(default=''), end:str=
     if not starts: return {"labels":[]}
     def dt(col):
         if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
-        return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
+        return _pdates(df[col])
     d_rfai=dt('rfaiNotice'); d_oa=dt('onAir'); d_rej=dt('rfaiRej')
-    st=df['srStatus'].astype(str).to_numpy(); isrej=(st=='Rejected RFAI')
+    st=_str_arr(df['srStatus']); isrej=(st=='Rejected RFAI')
     edges=[x for x in starts]+[nxt(starts[-1])]
     def counts(d):
         v=d.dropna(); v=v[(v>=edges[0])&(v<edges[-1])]
@@ -2230,28 +2323,34 @@ def home_stats(circle:str=Query(default='')):
     for the Home page. ?circle=X scopes everything to one circle."""
     df=_vf(_df_full_cache)
     if df is None or not len(df): return {"total":0}
-    all_circles=sorted(c for c in df['circle'].astype(str).unique() if c and c!='nan')
-    if circle: df=df[df['circle'].astype(str)==circle]
+    all_circles=sorted(c for c in set(_str_arr(df['circle'])) if c and c!='nan')
+    if circle: df=df[_str_arr(df['circle'])==circle]
     if not len(df): return {"total":0,"circles_all":all_circles,"circle":circle}
-    st=df['srStatus'].astype(str).to_numpy()
+    st=_str_arr(df['srStatus'])
     tot=len(df)
     def cnt(x): return int((st==x).sum())
+    # dates as day numbers (float32, NaN = no date): half the memory of datetime64 and
+    # parsed once per distinct date; every comparison with NaN is False, like NaT
+    EP=pd.Timestamp('1970-01-01')
+    def dn(t): return float((pd.Timestamp(t)-EP).days)
     def dates(col):
-        if col not in df.columns: return pd.Series(pd.NaT,index=df.index)
-        return pd.to_datetime(df[col].astype(str),format='%d-%b-%Y',errors='coerce')
-    today=pd.Timestamp(date.today()); wk=today-pd.Timedelta(days=7)
+        if col not in df.columns: return np.full(tot,np.nan,dtype=np.float32)
+        return _cat_map(df[col],lambda x:((_pdates(x)-EP).dt.days).to_numpy(dtype=np.float32,na_value=np.nan)).astype(np.float32)
+    today_=pd.Timestamp(date.today()); today=dn(today_); wk=today-7
     d_rfai=dates('rfaiNotice'); d_fin=dates('finalRfai'); d_pri=dates('priLast'); d_oa=dates('onAir')
     def last7(d): return int(((d>wk)&(d<=today)).sum())
-    def nonblank(col): return (df[col].astype(str).str.len()>0).to_numpy() if col in df.columns else np.zeros(tot,bool)
+    def nonblank(col):
+        if col not in df.columns: return np.zeros(tot,bool)
+        return _cat_map(df[col],lambda x:(x.astype(str).str.len()>0).to_numpy()&~x.astype(str).isin(['nan','None']).to_numpy()).astype(bool)
     delay=pd.to_numeric(df['delay'],errors='coerce').fillna(-1).to_numpy()
     pend=np.isin(st,['OnAir Pending','Open PRI','RFAI Pending'])
     # weekly momentum: last 12 weeks (Mon-start), RFAI received vs OnAir achieved
-    start=(today-pd.Timedelta(days=today.weekday()))-pd.Timedelta(weeks=11)
-    weeks=[start+pd.Timedelta(weeks=i) for i in range(12)]
+    start_=(today_-pd.Timedelta(days=today_.weekday()))-pd.Timedelta(weeks=11); start=dn(start_)
+    weeks=[start_+pd.Timedelta(weeks=i) for i in range(12)]
     def per_week(d):
         d=d[(d>=start)&(d<=today)]
-        idx=((d-start).dt.days//7).astype(int)
-        c=np.bincount(idx.to_numpy(),minlength=12)[:12] if len(idx) else np.zeros(12,int)
+        idx=((d-start)//7).astype(int)
+        c=np.bincount(idx,minlength=12)[:12] if len(idx) else np.zeros(12,int)
         return [int(x) for x in c]
     weekly={"labels":[w.strftime('%d %b') for w in weeks],"rfai":per_week(d_rfai),"onair":per_week(d_oa)}
     # 12-week trends for the KPI sparklines: state as at the end of each week
@@ -2259,14 +2358,14 @@ def home_stats(circle:str=Query(default='')):
     isrej=(st=='Rejected RFAI')
     dl_oa=pd.to_numeric(df['delay'],errors='coerce').to_numpy()
     tr={k:[] for k in ('scope','accepted','onair_pct','pending','pending_30','pri_open','onair_week','avg_delay')}
-    for i,w in enumerate(weeks):
-        e=min(w+pd.Timedelta(days=6),today)
-        sc=(d_rfai<=e).to_numpy(); oa=(d_oa<=e).to_numpy()
-        rj=(isrej&(d_rej<=e).to_numpy())
+    for i,w_ in enumerate(weeks):
+        w=dn(w_); e=min(w+6,today)
+        sc=(d_rfai<=e); oa=(d_oa<=e)
+        rj=(isrej&(d_rej<=e))
         pe=sc&~oa&~rj
-        p30=pe&(d_fin<=e-pd.Timedelta(days=30)).to_numpy()
-        po=(d_pf<=e).to_numpy()&~((d_pri<=e).to_numpy())&~oa
-        inwk=((d_oa>=w)&(d_oa<=e)).to_numpy()
+        p30=pe&(d_fin<=e-30)
+        po=(d_pf<=e)&~(d_pri<=e)&~oa
+        inwk=(d_oa>=w)&(d_oa<=e)
         n_sc=int(sc.sum())
         tr['scope'].append(n_sc); tr['accepted'].append(int((sc&~rj).sum()))
         tr['onair_pct'].append(round(float(oa.sum())/n_sc*100,1) if n_sc else 0)
@@ -2275,10 +2374,11 @@ def home_stats(circle:str=Query(default='')):
         v=dl_oa[inwk&(dl_oa>=0)]
         tr['avg_delay'].append(int(round(v.mean())) if len(v) else None)
     weekly['pending']=tr['pending']
-    rd=d_rfai.dropna()
-    date_range=[rd.min().strftime('%d %b %Y'),rd.max().strftime('%d %b %Y')] if len(rd) else None
+    rd=d_rfai[~np.isnan(d_rfai)]
+    date_range=[(EP+pd.Timedelta(days=int(rd.min()))).strftime('%d %b %Y'),
+                (EP+pd.Timedelta(days=int(rd.max()))).strftime('%d %b %Y')] if len(rd) else None
     # circle scorecard
-    g=pd.DataFrame({'c':df['circle'].astype(str).to_numpy(),'on':st=='OnAir','pe':pend,
+    g=pd.DataFrame({'c':_str_arr(df['circle']),'on':st=='OnAir','pe':pend,
                     'p30':pend&(delay>30),'pri':st=='Open PRI','rj':st=='Rejected RFAI',
                     'age':np.where(pend&(delay>=0),delay,np.nan)})
     g=g[g['c'].str.len()>0]
@@ -2413,7 +2513,7 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
     df=_vf(_df_full_cache)
     if df is None or not len(df): return {"total":0,"rows":[],"summary":{}}
     m=np.ones(len(df),bool)
-    def col(c): return df[c].astype(str).to_numpy() if c in df.columns else np.full(len(df),'')
+    def col(c): return _str_arr(df[c]) if c in df.columns else np.full(len(df),'')
     st=col('srStatus')
     PEND=['OnAir Pending','Open PRI','RFAI Pending']
     if status:
@@ -2430,7 +2530,7 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
     if recent:
         cname={'onair7':'onAir','final7':'finalRfai','pri7':'priLast','rfai7':'rfaiNotice'}.get(recent)
         if cname and cname in df.columns:
-            d=pd.to_datetime(df[cname].astype(str),format='%d-%b-%Y',errors='coerce')
+            d=_pdates(df[cname])
             today=pd.Timestamp(date.today())
             m&=((d>today-pd.Timedelta(days=7))&(d<=today)).to_numpy()
     if ev and (ev in _VEL_COL or ev=='pri_stock'):
@@ -2444,9 +2544,9 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
         except Exception: pass
     if q:
         ql=q.strip().lower()
-        m&=(pd.Series(col('srNo')).str.lower().str.contains(ql,regex=False).to_numpy()
-            |pd.Series(col('siteId')).str.lower().str.contains(ql,regex=False).to_numpy())
-    sub=df[m]; total=int(m.sum())
+        m&=(_contains(df,'srNo',ql)|_contains(df,'siteId',ql))
+    total=int(m.sum())
+    sub_idx=df.index[m]          # rows are looked up by label; no copy of every column
     sst=st[m]; sd=delay[m]
     # summaries
     stc={k:int(v) for k,v in pd.Series(sst).value_counts().items() if k and k!='nan'}
@@ -2472,16 +2572,16 @@ def explore(status:str=Query(default=''), circle:str=Query(default=''), category
     asc=dir=='asc'
     if total:
         if sort in ('rfaiNotice','finalRfai','priLast','onAir'):
-            key=pd.to_datetime(sub[sort].astype(str),format='%d-%b-%Y',errors='coerce')
+            key=_pdates(df[sort][m])
         elif sort=='delay':
-            key=pd.Series(delay[m],index=sub.index).where(lambda x:x>=0)
+            key=pd.Series(delay[m],index=sub_idx).where(lambda x:x>=0)
         else:
-            key=sub[sort].astype(str).str.lower() if sort in sub.columns else pd.Series('',index=sub.index)
-        order=key.sort_values(ascending=asc,na_position='last').index
+            key=df[sort][m].astype(str).str.lower() if sort in df.columns else pd.Series('',index=sub_idx)
+        order=key.sort_values(ascending=asc,na_position='last').index; del key
         size=max(10,min(int(size),500)); pages=max(1,-(-total//size)); page=max(1,min(int(page),pages))
-        pg=sub.loc[order[(page-1)*size:page*size]]
+        pg=df.loc[order[(page-1)*size:page*size]]
     else:
-        size=max(10,min(int(size),500)); pages=1; page=1; pg=sub
+        size=max(10,min(int(size),500)); pages=1; page=1; pg=df.iloc[:0]
     rows=[]
     for _,r in pg.iterrows():
         d={c:('' if c not in pg.columns or str(r[c]) in ('nan','None') else str(r[c])) for c in COLS if c!='delay'}
@@ -2530,7 +2630,7 @@ def _xl_filter(df, p):
     if p.get('recent'):
         cname={'onair7':'onAir','final7':'finalRfai','pri7':'priLast','rfai7':'rfaiNotice'}.get(p['recent'])
         if cname and cname in df.columns:
-            d=pd.to_datetime(df[cname].astype(str),format='%d-%b-%Y',errors='coerce')
+            d=_pdates(df[cname])
             today=pd.Timestamp(date.today())
             df=df[(d>today-pd.Timedelta(days=7))&(d<=today)]
     return df
@@ -2564,7 +2664,7 @@ def build_export_xlsx(df, path, filters_text, title, include_journey=True):
     f_kvd=F(font_size=20,bold=True,font_color=INK,align='center',num_format='0" d"',bg_color='#FFFFFF',left=1,right=1,bottom=1,left_color=LINE,right_color=LINE,bottom_color=LINE)
 
     def dts(series):
-        return pd.to_datetime(series.astype(str),format='%d-%b-%Y',errors='coerce')
+        return _pdates(series)
     def dv_int(v):
         try: v=int(v); return None if v<0 else v
         except Exception: return None
