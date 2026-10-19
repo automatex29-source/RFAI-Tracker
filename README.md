@@ -42,6 +42,27 @@ Settings are at the top of `CONVERT_TO_PARQUET.bat`:
 - If it says *"No SQL Server ODBC driver found"*, install **ODBC Driver 18 for SQL Server** (free,
   from Microsoft) and run the .bat again.
 
+### Share your PC's tracker online (free public link)
+
+Your PC holds far more data than the free cloud server, so the full data works there. To open it
+from a phone or send it to colleagues outside the office network, double-click
+**`SHARE_ONLINE.bat`** (after `START_HERE.bat` has been run once):
+
+1. It asks once for the **admin** password if none is saved; sign-in is always required online.
+2. It downloads Cloudflare's free tunnel program `cloudflared.exe` into `tools\` (first time only;
+   no Cloudflare account, no card).
+3. It starts the tracker in its own window, then shows a public link like
+   `https://some-words.trycloudflare.com`. The link is copied to the clipboard and saved in
+   `RFAI_link.txt`.
+4. Keep the window open. Close it (or press a key) to stop sharing.
+
+Notes:
+- The link changes each time you start it, and works only while the PC is on and the window is
+  open. A link that never changes needs a free Cloudflare account and your own domain name.
+- Upload big files on the PC itself (http://localhost:8765): the tunnel accepts at most 100 MB per
+  upload (the browser normally shrinks files far below that).
+- If the office network blocks Cloudflare, the tracker still works on the PC and the office network.
+
 ## Large data (hundreds of GB / TB)
 
 Raw files are **never uploaded to Render**. You convert them on your own PC, which

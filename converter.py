@@ -1641,8 +1641,11 @@ async def _aop_view(request:Request, call_next):
 
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')  # password of the built-in "admin" user
 _ON_SERVER     = bool(os.environ.get('RENDER'))
-# Login is required whenever an admin password exists, and always on a server.
-_AUTH_ON       = bool(ADMIN_PASSWORD) or _ON_SERVER
+# SHARE_ONLINE.bat sets RFAI_PUBLIC=1: this PC is reachable from the internet
+_PUBLIC        = os.environ.get('RFAI_PUBLIC', '').strip() == '1'
+# Login is required whenever an admin password exists, and always on a server
+# or when shared online.
+_AUTH_ON       = bool(ADMIN_PASSWORD) or _ON_SERVER or _PUBLIC
 _PUBLIC_PATHS  = ('/login', '/api/login', '/api/logout', '/api/ping', '/favicon.ico',
                   # phone app ("Add to Home screen"): manifest, icons, service worker
                   '/manifest.webmanifest', '/sw.js', '/icon-192.png', '/icon-512.png',
